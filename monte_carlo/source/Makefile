@@ -5,7 +5,7 @@ OBJS1 = commons.o
 OBJS2 =	accumul.o initialise.o keywords.o main.o move.o move_mc.o umbrella.o readinput.o \
         output.o potential.o orderparam.o free_energy_mc.o viewconfig.o \
         cluster_move.o cell_list.o rotations_module.o stack.o unitcells.o glj.o \
-		kihara.o pglj.o kf.o cpp.o etp.o dmbl_glj.o kf_rec.o hdmbl.o
+		kihara.o pglj.o kf.o cpp.o etp.o dmbl_glj.o kf_rec.o hdmbl.o dipolar_discs.o
 
 OBJS = ${OBJS1} ${OBJS2}
 LDFLAGS = -L.
@@ -69,6 +69,7 @@ etp.o:				commons.o rotations_module.o
 dmbl_glj.o:	  		commons.o rotations_module.o
 kf_rec.o:	  		commons.o rotations_module.o
 hdmbl.o:           	commons.o
+dipolar_discs.o:    commons.o rotations_module.o
 orderparam.o:     	commons.o cell_list.o stack.o cluster_move.o
 viewconfig.o:     	commons.o
 cell_list.o:
