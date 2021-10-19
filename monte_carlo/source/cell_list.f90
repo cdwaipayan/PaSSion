@@ -83,7 +83,7 @@ CONTAINS
     END SUBROUTINE MAKE_LIST
 
     FUNCTION C_INDEX ( RI ) RESULT ( CI )
-        USE COMMONS, ONLY: FLFET
+        USE COMMONS, ONLY: FLFET, TDSRFT, SPHERECNFT
         IMPLICIT NONE
         INTEGER, DIMENSION(3)                       :: CI ! Returns 3D cell index in range 0..scd-1, calculated from
         REAL(KIND=DP),  DIMENSION(3), INTENT(in)    :: RI ! position in box = 1 units
@@ -91,7 +91,7 @@ CONTAINS
 
         RO = RI
     !   Check that RI is within the bounds of the simulation box.
-        IF ( ANY ( ABS(RO) > 0.501 ) ) THEN ! SHOULD NEVER HAPPEN
+        IF ( ANY ( ABS(RO) > 0.501 ) .AND. (.NOT. TDSRFT) .AND. (.NOT. SPHERECNFT)) THEN ! SHOULD NEVER HAPPEN
             IF(FLFET) THEN
         !   This condition should ONLY EVER fail for a simulation with a fixed center
         !   of mass as, in this particular case, the particles are never returned

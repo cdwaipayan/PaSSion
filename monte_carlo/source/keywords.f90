@@ -336,6 +336,15 @@ SUBROUTINE KEYWORDS
     
             ELSE IF (WORD == 'STEPVLM') THEN
                 CALL READF(2, MAXBOX)                   ! Volume step size for NPT ensemble
+
+            ELSE IF (WORD == 'SPHERICAL') THEN
+                SPHERECNFT = .TRUE.
+                CALL READF(2, SPHERERAD)
+                SPHERERAD2 = SPHERERAD*SPHERERAD
+
+            ELSE IF (WORD == '2DSURF') THEN
+                TDSRFT = .TRUE.
+                IF (NITEM > 1) CALL READI(2, GEN2D)               
     
             ELSE IF (WORD == 'TAILCOR') THEN
                 TAILCORT = .TRUE.
@@ -424,7 +433,7 @@ SUBROUTINE KEYWORDS
                 IF(NSITES == 2) THEN
                     IF(KFAA == KFBB .AND. KFDELA == KFDELB .AND. KFLAMA == KFLAMB) HEADTAILT = .TRUE.
                 ENDIF
-    
+
             ELSE IF (WORD == 'PGLJ') THEN
                 PGLJT  = .TRUE.
                 RIGIDT = .TRUE.
@@ -572,6 +581,24 @@ SUBROUTINE KEYWORDS
                 RCUTSQ  = KF_LAM2
 
                 IF(KFAA == KFBB .AND. SKEWAB==0.0_dp) HEADTAILT = .TRUE.
+
+            ELSE IF (WORD == 'GAYBERNE') THEN
+                GBT       = .TRUE.
+                RIGIDT    = .TRUE.
+                HEADTAILT = .TRUE.
+                NSITES    = 1
+                CALL READF(2, GBK)
+                CALL READF(3, GBKP)
+                CALL READF(4, GBV)
+                CALL READF(5, GBM)
+                CALL READF(6, GBCUT)
+                GBX  = (GBK**2 - 1.0_dp) / (GBK**2 + 1.0_dp)
+                GBXP = (GBKP**(1.0_dp/GBM) - 1.0_dp) / (GBKP**(1.0_dp/GBM) + 1.0_dp)
+                IF (NITEM > 6) THEN
+                    EWALDT = .TRUE.
+                    CALL READF(7, DPMU)
+                    DPMUSQ = DPMU*DPMU
+                ENDIF
     
             ENDIF
     

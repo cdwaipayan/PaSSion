@@ -93,6 +93,8 @@ SUBROUTINE INITIALISE()
     ENDIF
 !   *************************************************************************
 
+    IF(GBT .AND. EWALDT) CALL DEF_DIPLR()
+
 !   *************************************************************************
     IF (RIGIDT) THEN
     !   Check that a rotational stepsize has been given, if not set it to be 
@@ -171,6 +173,7 @@ SUBROUTINE INITIALISE()
 !   Calculate the initial potential energy and virial of the system
 !   *************************************************************************
     IF(BOPCLSTRT) VLMCLUSTERMOVET = .TRUE.
+    IF(TDSRFT) SURFZ = -BOX(3)/2.0_dp
     CALL POTENTIAL(PE)
     IF(BOPCLSTRT) VLMCLUSTERMOVET = .FALSE.
     IF(OVERLAPT) STOP "INITIAL CONFIGURATION HAS OVERLAPPING PARTICLES"
@@ -294,7 +297,7 @@ END SUBROUTINE
 SUBROUTINE READCONFIG
 !   This subroutine reads in a configuration
     USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, RIGIDT, BOX, DENSITYT, PACKINGT, PI, VLM, CUBICT, ORTHORHOMBICT, RHO, UNITVECT
-    USE COMMONS, ONLY: CONTINUET, NPTT, SCALET
+    USE COMMONS, ONLY: CONTINUET, NPTT, SCALET, SPHERECNFT, SPHERERAD
     USE ROTATIONS_MODULE, ONLY: UV_TO_Q
 
     IMPLICIT NONE
@@ -317,34 +320,46 @@ SUBROUTINE READCONFIG
         READ(35,*) BOX
         READ(36,*) RHO
 
-        IF (DENSITYT) THEN
-            VLM = REAL(NPART,DP)/RHO
-        ELSE IF (PACKINGT) THEN
-            VLM = PI*REAL(NPART,DP) / (6.0_dp * RHO)
+        IF(SPHERECNFT) THEN
+            VLM = 4.0_dp/3.0_dp * PI * SPHERERAD**3
+            BOX = SPHERERAD*2.0_dp
+        ELSE
+            IF (DENSITYT) THEN
+                VLM = REAL(NPART,DP)/RHO
+            ELSE IF (PACKINGT) THEN
+                VLM = PI*REAL(NPART,DP) / (6.0_dp * RHO)
+            ENDIF
         ENDIF
 
         CLOSE(UNIT = 35)
         CLOSE(UNIT = 36)
 
     ELSE
-        !   Calculate the volume the simulation cell
-        IF (DENSITYT) THEN
-            VLM = REAL(NPART,DP)/RHO
-        ELSE IF (PACKINGT) THEN
-            VLM = PI*REAL(NPART,DP) / (6.0_dp * RHO)
-        ENDIF
 
-    !   Calculate the edge lengths of the simulation cell
-        IF(CUBICT) THEN
-            BOX = VLM**(1.0_dp / 3.0_dp)
-        ELSEIF(ORTHORHOMBICT) THEN 
-            IF(SCALET) THEN 
-                SCALE = (VLM/(BOX(1)*BOX(2)*BOX(3)) )**(1.0_dp/3.0_dp)
-                BOX   = BOX * SCALE
-            ELSE
-                VLM = BOX(1)*BOX(2)*BOX(3)
-                RHO = REAL(NPART,DP)/VLM
-                IF (PACKINGT) RHO = PI/6.0_dp * RHO
+        IF(SPHERECNFT) THEN
+            VLM = 4.0_dp/3.0_dp * PI * SPHERERAD**3
+            BOX = SPHERERAD*2.0_dp
+            RHO = REAL(NPART,DP)*PI/(6.0_dp*VLM)
+        ELSE
+            !   Calculate the volume the simulation cell
+            IF (DENSITYT) THEN
+                VLM = REAL(NPART,DP)/RHO
+            ELSE IF (PACKINGT) THEN
+                VLM = PI*REAL(NPART,DP) / (6.0_dp * RHO)
+            ENDIF
+
+        !   Calculate the edge lengths of the simulation cell
+            IF(CUBICT) THEN
+                BOX = VLM**(1.0_dp / 3.0_dp)
+            ELSEIF(ORTHORHOMBICT) THEN 
+                IF(SCALET) THEN 
+                    SCALE = (VLM/(BOX(1)*BOX(2)*BOX(3)) )**(1.0_dp/3.0_dp)
+                    BOX   = BOX * SCALE
+                ELSE
+                    VLM = BOX(1)*BOX(2)*BOX(3)
+                    RHO = REAL(NPART,DP)/VLM
+                    IF (PACKINGT) RHO = PI/6.0_dp * RHO
+                ENDIF
             ENDIF
         ENDIF
     ENDIF
@@ -355,7 +370,7 @@ SUBROUTINE READCONFIG
     DO J1 = 1, NPART
         
         READ(33,*) (R(J2,J1), J2 = 1, NDIM)        ! Read in the translational coordinates
-        R(:,J1) = R(:,J1) - BOX*ANINT(R(:,J1)/BOX) ! Take central image
+        IF(.NOT. SPHERECNFT) R(:,J1) = R(:,J1) - BOX*ANINT(R(:,J1)/BOX) ! Take central image
         IF (RIGIDT) THEN
             IF(UNITVECT) THEN
             ! Read in the rotational coordinates as unit vectors

@@ -8,8 +8,9 @@
         NTMOVES, NRMOVES, ACCPTCT, ACCPTCR, VIRTEMP, COLLDT, PINT, PINKAP2, PINKAPA, TRQ, CELLLISTT, RQ, RIGIDT, PE, &
         INDXP, VIR, OVERLAPT, NSITES, RBSITES, REFSITE, CLUSTERT, HALFST, EQUISEEDT, CLUSTERMOVET, CLSTRRATIO
         USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRSZ, ACCPTCTC, ACCPTCRC, LRGCLSTRT, LRGCLSTRRATIO, LRGCLSTMVT
+        USE COMMONS, ONLY: TDSRFT, SPHERECNFT, SPHERERAD, EWALDT
         USE CELL_LIST, ONLY: C_INDEX, MOVE_IN_LIST
-        USE ROTATIONS_MODULE, ONLY: RANDOM_ROTATE_QUATERNION, Q_TO_RM
+        USE ROTATIONS_MODULE, ONLY: RANDOM_ROTATE_QUATERNION, Q_TO_RM, UV_TO_Q, Q_TO_UV
         USE CLUSTER_MOVE
         
         IMPLICIT NONE
@@ -110,8 +111,18 @@
                     RO(J1)      = R(J1,INDXP)
                     R(J1,INDXP) = R(J1,INDXP) + (2.0_dp*DRAND48()-1.0_dp)*MAXDTR
             !   Pick up the central image
-                    R(J1,INDXP) = R(J1,INDXP) - BOX(J1)*ANINT(R(J1,INDXP)/BOX(J1))
+                    IF(TDSRFT .AND. J1==3) THEN
+                        IF(R(J1,INDXP) > BOX(J1)/2.0_dp .OR. R(J1,INDXP) < -BOX(J1)/2.0_dp) THEN
+                            REJECTT = .TRUE.
+                        ENDIF
+                    ELSEIF(.NOT. SPHERECNFT) THEN
+                        R(J1,INDXP) = R(J1,INDXP) - BOX(J1)*ANINT(R(J1,INDXP)/BOX(J1))
+                    ENDIF
                 ENDDO
+
+                IF(SPHERECNFT) THEN
+                    IF(NORM2(R(:,INDXP))+0.5_dp > SPHERERAD) REJECTT = .TRUE.
+                ENDIF
             !   Update the position of the particle in the cell list following the move
                 IF(CELLLISTT) THEN
                     CI  = C_INDEX ( R(:,INDXP)/BOX ) ! NEW CELL INDEX
@@ -122,21 +133,33 @@
             !   Rotational moves
             !   Perform random perturbation in quaternion space
                 QO         = Q(:,INDXP)
-                Q(:,INDXP) = RANDOM_ROTATE_QUATERNION ( MAXDRT, QO )
-            !   Update the rigid body sites of the particle being displaced
-                RM   = Q_TO_RM( Q(:,INDXP) )
-                IF(RACEMICT) RC1 = MOD(((INDXP-1)-MOD((INDXP-1),12))/12+1,2)
-                DO J1 = 1, NSITES
-                    IF(RACEMICT) THEN
-                        IF(RC1==1) THEN
-                            RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
-                        ELSE
-                            RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE2(:,J1))
-                        ENDIF
+                IF(EWALDT) THEN
+                    IF(DRAND48() < 0.05_dp) THEN
+                        RBSITES(:,1,INDXP) = -RBSITES(:,1,INDXP)
+                        Q(:,INDXP)         = UV_TO_Q ( -RBSITES(:,1,INDXP) )
                     ELSE
-                        RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
+                        Q(:,INDXP) = RANDOM_ROTATE_QUATERNION ( MAXDRT, QO )
+                        RM   = Q_TO_RM( Q(:,INDXP) )
+                        RBSITES(:,1,INDXP) = MATMUL(RM ,REFSITE(:,1))
                     ENDIF
-                ENDDO
+                ELSE
+                    Q(:,INDXP) = RANDOM_ROTATE_QUATERNION ( MAXDRT, QO )
+                    !   Update the rigid body sites of the particle being displaced
+                    RM   = Q_TO_RM( Q(:,INDXP) )
+                    IF(RACEMICT) RC1 = MOD(((INDXP-1)-MOD((INDXP-1),12))/12+1,2)
+                    DO J1 = 1, NSITES
+                        IF(RACEMICT) THEN
+                            IF(RC1==1) THEN
+                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
+                            ELSE
+                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE2(:,J1))
+                            ENDIF
+                        ELSE
+                            RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
+                        ENDIF
+                    ENDDO
+                ENDIF
+
                 NRMOVES    = NRMOVES + 1
             ENDIF
         !   Calculate energy associated with particle I after the move
@@ -285,10 +308,11 @@
 !   This routines performs a volume scaling move for Monte Carlo simulations in the NPT ensemble.
 !   The simulation cell to use this routine must either be cubic or orthorhombic.
 !   ================================================================================================
-        USE COMMONS, ONLY: DP, CDP, BOX, PRSFIX, VLM, R, BETAKB, NPART, NVMOVES, ACCPTV, PE
+        USE COMMONS, ONLY: PI, DP, CDP, BOX, PRSFIX, VLM, R, BETAKB, NPART, NVMOVES, ACCPTV, PE
         USE COMMONS, ONLY: VIR, VIRTEMP, MAXBOX, ISOTROPICT, NPZTT, NDIM, CELLLISTT, SPET, OVERLAPT, SCALED_R, RCUT
         USE COMMONS, ONLY: NCLSTRS, CLSTRADJ, CLUSTERMOVET, VLMCLUSTERMOVET
-        USE COMMONS, ONLY: PINT, PINKAP2, PINA, PINDIM, TRQ, COLLDT
+        USE COMMONS, ONLY: PINDIM
+        USE COMMONS, ONLY: SPHERECNFT, SPHERERAD, SPHERERAD2
         USE CELL_LIST
         USE CLUSTER_MOVE, ONLY: VLM_CLUSTERMOVE
      
@@ -297,10 +321,8 @@
         INTEGER          :: J1, J2, BDIM, OLDADJ(NPART,NPART)
         REAL(KIND=DP)    :: VLMNEW, VLMOLD, LNBL
         REAL(KIND=DP)    :: PEO, PEN, VIRO, VIRN, DELB, ARG, DELPE
-        REAL(KIND=DP)    :: BOXO(NDIM), ROLD(NDIM, NPART), RANDDIM, BOXDIFF
+        REAL(KIND=DP)    :: BOXO(NDIM), ROLD(NDIM, NPART), RANDDIM, BOXDIFF, RADO, RSOLD(NDIM, NPART)
         REAL(KIND=CDP)   :: DRAND48
-        REAL(KIND=DP)    :: TRQO, TRQN, UPINN, UPINO
-        COMPLEX(KIND=DP) :: RQO, RQN
         LOGICAL          :: REJECTT
         
         NVMOVES = NVMOVES + 1
@@ -321,55 +343,76 @@
         VIRO   = VIRTEMP
         VLMOLD = VLM
         ROLD   = R
-     
-    !   PERFORM VOLUME MOVE AND SCALE THE POSITION OF THE PARTICLES ACCORDINGLY.
-        IF(ISOTROPICT) THEN
-    !   Random Walk in log(V), all box lengths remain equal
-            BOXO   = BOX
-            DELB   = (DRAND48() - 0.5_dp) * MAXBOX
-            VLMNEW = EXP( LOG(VLMOLD) + DELB )
-            BOX    = VLMNEW**(1.0_dp/3.0_dp)
-        
-            IF(CLUSTERMOVET) THEN
-                CALL VLM_CLUSTERMOVE(.TRUE., BOXDIFF=BOX/BOXO)
-            ELSE
-                DO J1 = 1, NPART
-                    R(:,J1) = R(:,J1) * BOX / BOXO
-                ENDDO
-            ENDIF
-        ELSE
-    !   Random Walk in log(V), box lengths are allowed to fluctuate independently
-    !   Steps in volume are taken by randomly perturbing one of the box lengths.
+
+        IF(SPHERECNFT) THEN
+            RADO = SPHERERAD
             BOXO = BOX
+            DO J1 = 1, NPART
+                RSOLD(1,J1) = NORM2(R(:,J1))
+                RSOLD(2,J1) = ATAN2( SQRT(R(1,J1)**2+R(2,J1)**2),R(3,J1) )
+                RSOLD(3,J1) = ATAN2( R(1,J1),R(2,J1) )
+            ENDDO
+            DELB       = (DRAND48() - 0.5_dp) * MAXBOX
+            VLMNEW     = EXP( LOG(VLMOLD) + DELB )
+            SPHERERAD  = (3.0_dp*VLMNEW/(4.0_dp*PI))**(1.0_dp/3.0_dp)
+            RSOLD(1,:) = RSOLD(1,:)*SPHERERAD/RADO
+            DO J1 = 1, NPART
+                R(1,J1) = RSOLD(1,J1)*COS(RSOLD(3,J1))*SIN(RSOLD(2,J1))
+                R(2,J1) = RSOLD(1,J1)*SIN(RSOLD(3,J1))*SIN(RSOLD(2,J1))
+                R(3,J1) = RSOLD(1,J1)*COS(RSOLD(2,J1))
+            ENDDO
+            BOX = SPHERERAD*2.0_dp
 
-            IF(NPZTT) THEN
-        !   In the NPzT ensemble, so the cell lengths along the X and Y axes remain fixed.
-                BDIM = PINDIM
-            ELSE
-                RANDDIM = DRAND48()
-                IF(RANDDIM < 1.0_dp/3.0_dp) THEN
-                    BDIM = 1
-                ELSEIF(RANDDIM < 2.0_dp/3.0_dp) THEN
-                    BDIM = 2
-                ELSE
-                    BDIM = 3
-                ENDIF
-            ENDIF
-
-            LNBL     = (DRAND48() - 0.5_dp)*MAXBOX
-            BOX(BDIM) = BOX(BDIM)*EXP(LNBL)
-            BOXDIFF  = BOX(BDIM) / BOXO(BDIM)
-            VLMNEW   = VLMOLD*BOXDIFF
+        ELSE
+        !   PERFORM VOLUME MOVE AND SCALE THE POSITION OF THE PARTICLES ACCORDINGLY.
+            IF(ISOTROPICT) THEN
+        !   Random Walk in log(V), all box lengths remain equal
+                BOXO   = BOX
+                DELB   = (DRAND48() - 0.5_dp) * MAXBOX
+                VLMNEW = EXP( LOG(VLMOLD) + DELB )
+                BOX    = VLMNEW**(1.0_dp/3.0_dp)
             
-            IF(CLUSTERMOVET) THEN
-                CALL VLM_CLUSTERMOVE(.FALSE., BDIM=BDIM, BOXD=BOXDIFF)
+                IF(CLUSTERMOVET) THEN
+                    CALL VLM_CLUSTERMOVE(.TRUE., BOXDIFF=BOX/BOXO)
+                ELSE
+                    DO J1 = 1, NPART
+                        R(:,J1) = R(:,J1) * BOX / BOXO
+                    ENDDO
+                ENDIF
             ELSE
-                DO J1 = 1, NPART
-                    R(BDIM,J1) = R(BDIM,J1) * BOXDIFF
-                ENDDO
-            ENDIF
+        !   Random Walk in log(V), box lengths are allowed to fluctuate independently
+        !   Steps in volume are taken by randomly perturbing one of the box lengths.
+                BOXO = BOX
 
-        ENDIF 
+                IF(NPZTT) THEN
+            !   In the NPzT ensemble, so the cell lengths along the X and Y axes remain fixed.
+                    BDIM = PINDIM
+                ELSE
+                    RANDDIM = DRAND48()
+                    IF(RANDDIM < 1.0_dp/3.0_dp) THEN
+                        BDIM = 1
+                    ELSEIF(RANDDIM < 2.0_dp/3.0_dp) THEN
+                        BDIM = 2
+                    ELSE
+                        BDIM = 3
+                    ENDIF
+                ENDIF
+
+                LNBL     = (DRAND48() - 0.5_dp)*MAXBOX
+                BOX(BDIM) = BOX(BDIM)*EXP(LNBL)
+                BOXDIFF  = BOX(BDIM) / BOXO(BDIM)
+                VLMNEW   = VLMOLD*BOXDIFF
+                
+                IF(CLUSTERMOVET) THEN
+                    CALL VLM_CLUSTERMOVE(.FALSE., BDIM=BDIM, BOXD=BOXDIFF)
+                ELSE
+                    DO J1 = 1, NPART
+                        R(BDIM,J1) = R(BDIM,J1) * BOXDIFF
+                    ENDDO
+                ENDIF
+
+            ENDIF 
+        ENDIF
      
         IF(CELLLISTT) THEN
             CALL FINALIZE_LIST()
@@ -428,6 +471,8 @@
             ELSE
                 BOX(BDIM) = BOXO(BDIM)
             ENDIF
+
+            IF(SPHERECNFT) SPHERERAD = RADO
      
             PE  = PEO
             VIR = VIRO
@@ -448,6 +493,7 @@
            PE     = PEN     ! Volume change accepted
            VIR    = VIRN
            VLM    = VLMNEW
+           IF(SPHERECNFT) SPHERERAD2 = SPHERERAD*SPHERERAD
            ACCPTV = ACCPTV + 1
         ENDIF
 

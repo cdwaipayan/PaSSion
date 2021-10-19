@@ -3,8 +3,8 @@ SUBROUTINE POTENTIAL(ENERGY)
     !   Subroutine to calculate the potential energy associated either with the whole
     !   system or for a given particle whose index is given by INDXP.
     !==================================================================================
-        USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, BOX, SPET, INDXP, RCUTSQ, RIGIDT
-        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, VIRTEMP, CELLLISTT, RACEMICT, REFSITE2
+        USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, BOX, SPET, INDXP, RCUTSQ, RIGIDT, TDSRFT, SPHERECNFT, SLFFCT
+        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, VIRTEMP, CELLLISTT, RACEMICT, REFSITE2, GBT, EWALDT, NC
         USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRID
         
         USE CELL_LIST, ONLY: C_INDEX, NEIGHBOURS
@@ -22,6 +22,8 @@ SUBROUTINE POTENTIAL(ENERGY)
         REAL(KIND=DP) :: PAIR_ENERGY
     !   Parameters related to cell-list 
         INTEGER       :: CI(3), J_LIST(NPART), JJ
+    !   Parameters related to reciprocal part of Ewald sum
+        REAL(KIND=DP) :: TCOS(NDIM,0:NC,NPART), TSIN(NDIM,0:NC,NPART)
         
     !   PARAMETER TO BE OUTPUT FROM SUBROUTINE
         REAL(KIND=DP), INTENT(OUT) :: ENERGY
@@ -65,10 +67,24 @@ SUBROUTINE POTENTIAL(ENERGY)
             ENDIF
     
         ENDIF
+
+        IF(GBT .AND. EWALDT) CALL EVAL_SIN_COS(TCOS,TSIN)
     
         DO J1 = J1START, J1END
         !   Position of particle I
             RI  = R(:,J1)
+
+            IF(TDSRFT) THEN
+                PAIR_ENERGY = 0.0_dp
+                CALL KF_SURFACE(PAIR_ENERGY, RI, J1)
+                ENERGY = ENERGY + PAIR_ENERGY
+            ENDIF
+
+            IF (GBT .AND. EWALDT) THEN
+                PAIR_ENERGY = 0.0_dp
+                CALL DIPLR_DSCS_RECIP(J1,PAIR_ENERGY,TCOS,TSIN)
+                ENERGY = ENERGY + PAIR_ENERGY - SLFFCT
+            ENDIF
     
             IF(CELLLISTT) THEN
     
@@ -115,8 +131,16 @@ SUBROUTINE POTENTIAL(ENERGY)
             !   Position of particle J
                 RJ    = R(:,J2)
                 RIJ   = RI - RJ
-                RIJ   = RIJ - BOX*ANINT( RIJ/BOX )
+                
+                IF(.NOT. SPHERECNFT) THEN
+                    IF(TDSRFT) THEN
+                        RIJ(1:2) = RIJ(1:2) - BOX(1:2)*ANINT( RIJ(1:2)/BOX(1:2) )
+                    ELSE
+                        RIJ   = RIJ - BOX*ANINT( RIJ/BOX )
+                    ENDIF
+                ENDIF
                 RIJSQ = DOT_PRODUCT(RIJ,RIJ)
+
             !   Check if the particle J is within the cutoff distance
                 IF (RIJSQ <= RCUTSQ) THEN
                     PAIR_ENERGY = 0.0_dp
@@ -133,7 +157,7 @@ SUBROUTINE POTENTIAL(ENERGY)
     SUBROUTINE PAIR_POTENTIAL(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
         USE COMMONS, ONLY: DP, NDIM, HARDT, OVERLAPT, MODT
-        USE COMMONS, ONLY: KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, KFRECT, HDMBLT, HTPRT, YUKT
+        USE COMMONS, ONLY: KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, KFRECT, HDMBLT, HTPRT, YUKT, GBT
         
         IMPLICIT NONE
     
@@ -194,6 +218,9 @@ SUBROUTINE POTENTIAL(ENERGY)
     
             ELSEIF (DMBLGLJT) THEN
                 CALL DMBL_GLJ(PAIR_ENERGY, J1, J2)
+
+            ELSEIF (GBT) THEN
+                CALL DIPLR_DSCS(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
             ELSE
                 PRINT *, "NO POTENTIAL SELECTED, STOPPING PROGRAM."
@@ -218,7 +245,7 @@ SUBROUTINE POTENTIAL(ENERGY)
     
     SUBROUTINE INIT_POT()
     
-        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, KFRECT, HDMBLT, HTPRT
+        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, KFRECT, HDMBLT, HTPRT, GBT
         IMPLICIT NONE
     
         RCUTSQ = RCUT*RCUT
@@ -241,6 +268,8 @@ SUBROUTINE POTENTIAL(ENERGY)
             CALL DEF_KF_REC()
         ELSEIF (HDMBLT) THEN
             CALL DEF_HDMBL()
+        ELSEIF (GBT) THEN
+            CALL DEF_GB_DSCS()
         ENDIF
     
     END SUBROUTINE INIT_POT
@@ -285,3 +314,40 @@ SUBROUTINE POTENTIAL(ENERGY)
         ENDIF
     
     END SUBROUTINE PESRF
+
+    SUBROUTINE EVAL_SIN_COS(TCOS,TSIN)
+
+        USE COMMONS, ONLY: DP, NDIM, TWOPI, BOX, NC, NPART, R 
+    
+        IMPLICIT NONE
+    
+        INTEGER       :: J, K
+        REAL(KIND=DP) :: T(NDIM), TT(NDIM), U(NDIM), W(NDIM), TCOS(NDIM,0:NC,NPART), TSIN(NDIM,0:NC,NPART)
+    
+        T = TWOPI/BOX
+        TCOS = 0.D0; TSIN = 0.D0
+    
+        DO J = 1, NPART
+            TT = T*R(:,J)
+        ! Trig values when |n|=0
+            TCOS(:,0,J) = 1.0_dp
+            TSIN(:,0,J) = 0.0_dp
+        ! Trig values when |n|=1
+            TCOS(:,1,J) = COS(TT)
+            TSIN(:,1,J) = SIN(TT)
+        ! Trig values when |n|=2
+            U = 2.0_dp*TCOS(:,1,J)
+            TCOS(:,2,J) = U*TCOS(:,1,J)
+            TSIN(:,2,J) = U*TSIN(:,1,J)
+            TT = 1.0_dp
+            TCOS(:,2,J) = TCOS(:,2,J) - TT
+        ! Trig values when |n|>3
+            DO K = 3, NC
+                W = U*TCOS(:,K-1,J)
+                TCOS(:,K,J) = W - TCOS(:,K-2,J)
+                W = U*TSIN(:,K-1,J)
+                TSIN(:,K,J) = W - TSIN(:,K-2,J)
+            ENDDO
+        ENDDO
+    
+    END SUBROUTINE EVAL_SIN_COS

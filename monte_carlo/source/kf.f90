@@ -97,6 +97,69 @@
     END SUBROUTINE KF
 
 !====================================================================================================
+
+    SUBROUTINE KF_SURFACE(ENERGY, RI, J1)
+    !==============================================================================================
+    !   Subroutine to calculate the potential energy for a system of patchy particles interacting
+    !   via the Kern-Frenkel potential.
+    !==============================================================================================
+            USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES
+            USE COMMONS, ONLY: RCUT, KFLAM2, KFDEL, KFIJ
+            USE COMMONS, ONLY: SURFZ, GEN2D
+        
+            IMPLICIT NONE
+        
+            INTEGER, INTENT(IN)         :: J1
+            REAL(KIND=DP), INTENT(IN)   :: RI(NDIM)
+    
+            INTEGER                     :: J3
+            REAL(KIND=DP)               :: DIST, DIST2, RIJ(NDIM), RHAT(NDIM)
+            REAL(KIND=DP)               :: R2, RLJN, R2LJN, VIJ
+            REAL(KIND=DP)               :: EA(NDIM), EARIJ
+        
+            REAL(KIND=DP), INTENT(OUT)  :: ENERGY
+
+            ENERGY   = 0.0_dp
+
+            DIST  = RI(3)-SURFZ
+            RIJ   = [0.0_dp, 0.0_dp, DIST]
+    
+            IF (DIST <= RCUT/2.0_dp) THEN
+                RHAT  = RIJ / DIST
+            ELSE
+                RETURN
+            ENDIF
+
+            DIST2 = DIST**2
+
+            IF(GEN2D) THEN
+                R2      = 1.0_dp/DIST2
+                RLJN    = R2**3
+                R2LJN   = RLJN*RLJN
+                VIJ     = R2LJN - RLJN
+                
+                IF(DIST<=MINVAL(KFLAM2)-0.5_dp) THEN
+                    ENERGY = -10.0_dp
+                ELSE
+                    ENERGY = 40.0_dp*VIJ
+                ENDIF
+            ENDIF
+
+            DO J3 = 1, NSITES
+            !   Direction of patch alpha on particle I
+                EA  = RBSITES(:,J3,J1)
+                EARIJ = -DOT_PRODUCT(EA,RHAT)
+            !   If normalised distance vector doesn't pass through patch alpha
+            !   the conditions for bonding are not met so no need to progress.
+                IF(EARIJ <= KFDEL(J3) .OR. DIST2 > KFLAM2(J3,J3)-1._dp) CYCLE
+            !   The conditions for bonding are met so calculate the contribution 
+            !   of the interaction between patches alpha and beta to the energy.
+                ENERGY = ENERGY - 10.0_dp*KFIJ(J3,J3)
+            !   If performing MC with cluster-moves, add particle J to the current 
+            !   cluster (if it is not already in the cluster). 
+            ENDDO ! Loop over each of the patches on particle i
+
+    END SUBROUTINE
     
     SUBROUTINE DEF_KF()
     !----------------------------------------------------------------
