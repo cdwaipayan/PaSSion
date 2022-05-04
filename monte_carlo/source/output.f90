@@ -627,7 +627,7 @@ SUBROUTINE SUMMARY_END()
     write(1771,*) string
     
     CALL CPU_TIME(FINISH_TIME)
-    WRITE(fmt1,'(F20.12)') ((FINISH_TIME - START_TIME)/60.0) / 24.0
+    WRITE(fmt1,'(F20.12)') ((FINISH_TIME - START_TIME)/60.0) / 60.0
     string = 'Total run time was '//trim(adjustl(fmt1))//' hours'
     write(1771,*) string
 
