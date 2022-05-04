@@ -7,22 +7,54 @@ SUBROUTINE OUTPUT()
     INTEGER            :: J1, J2, NSTART, LRGST_X_CLSTR
     character(len=100) :: fmt1, snbop
 
-    OPEN (UNIT = 3, FILE ='data.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-    !   Current Monte Carlo cycle/step 
-        WRITE (3,*) "STEP: ", ISTEP
-    !   Instantaneous energy
-        WRITE (3,*) "ENERGY: ", PE
-    !   Instantaneous pressure (only valid for continuous models)       
-        WRITE (3,*) "PRESSURE: ", PRES
+    IF (.NOT. SEGREGATET) THEN
+        OPEN (UNIT = 3, FILE ='data.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        !   Current Monte Carlo cycle/step 
+            WRITE (3,*) "STEP: ", ISTEP
+        !   Instantaneous energy
+            WRITE (3,*) "ENERGY: ", PE
+        !   Instantaneous pressure (only valid for continuous models)       
+            WRITE (3,*) "PRESSURE: ", PRES
+            IF(NPTT) THEN
+            !   Instantaneous density      
+                WRITE (3,*) "DENSITY: ", RHO
+            !   Instantaneous volume  
+                WRITE (3,*) "VOLUME: ", VLM
+            !   Collective density field
+                IF(NPZTT .OR. PINT) WRITE (3,*) "COLL_DENS: ", TRQ
+            ENDIF
+        CLOSE (UNIT = 3, STATUS = 'KEEP')
+
+    ELSE !PRINT SEPERATE FILES
+        OPEN (UNIT = 54, FILE ='energy.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        !   Current Monte Carlo cycle/step & instantaneous energy
+            WRITE (54,*) ISTEP, PE
+        CLOSE (UNIT = 54, STATUS = 'KEEP')
+
+        OPEN (UNIT = 55, FILE ='pressure.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        !   Instantaneous pressure (only valid for continuous models)       
+            WRITE (55,*) ISTEP, PRES
+        CLOSE (UNIT = 55, STATUS = 'KEEP')
+
         IF(NPTT) THEN
-        !   Instantaneous density      
-            WRITE (3,*) "DENSITY: ", RHO
-        !   Instantaneous volume  
-            WRITE (3,*) "VOLUME: ", VLM
-        !   Collective density field
-            IF(NPZTT .OR. PINT) WRITE (3,*) "COLL_DENS: ", TRQ
+            OPEN (UNIT = 56, FILE ='density.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+            !   Instantaneous density      
+                WRITE (56,*) ISTEP, RHO
+            CLOSE (UNIT = 56, STATUS = 'KEEP')
+
+            OPEN (UNIT = 57, FILE ='volume.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+            !   Instantaneous volume  
+                WRITE (57,*) ISTEP, VLM
+            CLOSE (UNIT = 57, STATUS = 'KEEP')
+
+            IF(NPZTT .OR. PINT) THEN
+                OPEN (UNIT = 58, FILE ='coll_dens.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+                !   Collective density field
+                    WRITE (58,*) TRQ
+                CLOSE (UNIT = 58, STATUS = 'KEEP')
+            ENDIF
         ENDIF
-    CLOSE (UNIT = 3, STATUS = 'KEEP')
+    ENDIF
 
     IF(BOPT) THEN
         WRITE(fmt1,'(I6)') (MAX_L-MIN_L)/DEL_L+1
@@ -402,6 +434,36 @@ SUBROUTINE SUMMARY_START()
                 write(1771,*) string
             ENDIF
         ENDDO
+
+    ELSEIF (GYROIDALT) THEN
+        write(1771,*) 'Simulating "gyroidal" Kern-Frenkel particles'
+        write(1771,*) string
+        !PAIR A
+        WRITE(fmt2,'(F20.12)') KFDELA
+        string = '  + Patch pair A have widths of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') GYBETA1
+        string = '  + Patch pair A have a beta of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') KFAA
+        string = '  + Patch pair A have well-depths of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') KFLAMA
+        string = '  + Patch pair A have ranges of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        !PAIR B
+        WRITE(fmt2,'(F20.12)') KFDELC
+        string = '  + Patch pair B have widths of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') GYBETA2
+        string = '  + Patch pair B have a beta of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') KFCC
+        string = '  + Patch pair B have well-depths of: '//trim(adjustl(fmt2))
+        write(1771,*) string
+        WRITE(fmt2,'(F20.12)') KFLAMC
+        string = '  + Patch pair B have ranges of: '//trim(adjustl(fmt2))
+        write(1771,*) string
 
     ELSEIF (PGLJT) THEN
         write(1771,*) 'Simulating patchy GLJ particles'

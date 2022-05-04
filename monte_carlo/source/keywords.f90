@@ -324,6 +324,9 @@ SUBROUTINE KEYWORDS
                 
                 SCHSMIT  = .TRUE.
                 SAVEREFT = .TRUE.
+
+            ELSE IF (WORD == 'SEGREGATE') THEN
+                SEGREGATET = .TRUE.              ! instructs to output SEPERATE DATA FILES
     
             ELSE IF (WORD == 'STEPS') THEN
                 CALL READI(2, NSTEP)                 ! Total number of MC cycles
@@ -599,7 +602,26 @@ SUBROUTINE KEYWORDS
                     CALL READF(7, DPMU)
                     DPMUSQ = DPMU*DPMU
                 ENDIF
-    
+            
+            ELSE IF (WORD == 'GYROIDAL') THEN
+                GYROIDALT    = .TRUE.
+                HARDT  = .TRUE.
+                RIGIDT = .TRUE.
+                NSITES = 4
+
+                CALL READF(2,  KFAA) ! = KFBB
+                CALL READF(3,  KFCC) ! = KFDD
+                CALL READF(4,  KFDELA) ! = KFDELB
+                CALL READF(5,  KFDELC) ! = KFDELD
+                CALL READF(6,  GYBETA1)
+                CALL READF(7,  GYBETA2)
+                CALL READF(8,  SKEWAB) !CHI
+                CALL READF(9,  KFLAMA) ! = KFLAMB = KFLAMC = KFLAMD
+                
+                !RCUT   = MAX(KFLAMA, KFLAMB, KFLAMC, KFLAMD) !FOR WHEN RANGES /=
+                RCUT   = KFLAMA
+                RCUTSQ = RCUT**2
+
             ENDIF
     
         END DO
