@@ -40,14 +40,8 @@ System description.
 
 ## Other keywords
 
-### SEGREGATE
-
-`SEGREGATE`
-
+`SEGREGATE`  
 Print seperate .dat files instead of `data.dat`.
 
-### EXAMPLE
-
-`EXAMPLE`
-
+`EXAMPLE`  
 Keyword description.
