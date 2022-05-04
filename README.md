@@ -4,6 +4,7 @@ A Package for Soft Matter Simulation.
 
 ## System definition keywords
 
+### GYROIDAL
 `GYROIDAL`
 `\epsilon_AA`
 `\epsilon_BB`
@@ -27,6 +28,7 @@ A Package for Soft Matter Simulation.
 
 ***
 
+### EXAMPLE
 `EXAMPLE`
 `parameter1`
 `parameter2`
@@ -36,11 +38,16 @@ System description.
 1. `parameter1` details
 2. `parameter2` details
 
-
 ## Other keywords
 
-`SEGREGATE`  
-Prints seperate .dat files instead of `data.dat`.
+### SEGREGATE
 
-`EXAMPLE`  
+`SEGREGATE`
+
+Print seperate .dat files instead of `data.dat`.
+
+### EXAMPLE
+
+`EXAMPLE`
+
 Keyword description.
