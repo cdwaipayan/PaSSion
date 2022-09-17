@@ -435,36 +435,6 @@ SUBROUTINE SUMMARY_START()
             ENDIF
         ENDDO
 
-    ELSEIF (GYROIDALT) THEN
-        write(1771,*) 'Simulating "gyroidal" Kern-Frenkel particles'
-        write(1771,*) string
-        !PAIR A
-        WRITE(fmt2,'(F20.12)') KFDELA
-        string = '  + Patch pair A have widths of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') GYBETA1
-        string = '  + Patch pair A have a beta of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') KFAA
-        string = '  + Patch pair A have well-depths of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') KFLAMA
-        string = '  + Patch pair A have ranges of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        !PAIR B
-        WRITE(fmt2,'(F20.12)') KFDELC
-        string = '  + Patch pair B have widths of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') GYBETA2
-        string = '  + Patch pair B have a beta of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') KFCC
-        string = '  + Patch pair B have well-depths of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-        WRITE(fmt2,'(F20.12)') KFLAMC
-        string = '  + Patch pair B have ranges of: '//trim(adjustl(fmt2))
-        write(1771,*) string
-
     ELSEIF (PGLJT) THEN
         write(1771,*) 'Simulating patchy GLJ particles'
     

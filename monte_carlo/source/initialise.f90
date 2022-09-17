@@ -67,7 +67,6 @@ SUBROUTINE INITIALISE()
     ALLOCATE( R(NDIM,NPART) )
     IF(RIGIDT) THEN
         ALLOCATE( Q(4,NPART), REFSITE(NDIM,NSITES), RBSITES(NDIM,NSITES,NPART) )
-        IF(RACEMICT) ALLOCATE( REFSITE2(NDIM,NSITES) )
     ENDIF
 
 !---------------------------------------------------------------------
@@ -103,17 +102,8 @@ SUBROUTINE INITIALISE()
     !   Initialise rigid body sites
         DO J1 = 1, NPART
             RM = Q_TO_RM( Q(:,J1) )
-            IF(RACEMICT) RC1 = MOD(((J1-1)-MOD((J1-1),12))/12+1,2)
             DO J2 = 1, NSITES
-                IF(RACEMICT) THEN
-                    IF(RC1==1) THEN
-                        RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
-                    ELSE
-                        RBSITES(:,J2,J1) = MATMUL(RM,REFSITE2(:,J2))
-                    ENDIF
-                ELSE
-                    RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
-                ENDIF
+                RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
             ENDDO
         ENDDO
     ENDIF
@@ -393,7 +383,7 @@ END SUBROUTINE READCONFIG
          
 SUBROUTINE SPHRCL_SEED()
 
-    USE COMMONS, ONLY: DP, NPART, NDIM, NUCSIZE, SEEDSIZE, RSEED, QSEED, SEEDRADIUS, R, Q, RIGIDT, BINARYT, SEEDID, RACEMICT
+    USE COMMONS, ONLY: DP, NPART, NDIM, NUCSIZE, SEEDSIZE, RSEED, QSEED, SEEDRADIUS, R, Q, RIGIDT, BINARYT, SEEDID
 
     IMPLICIT NONE
 
@@ -421,7 +411,7 @@ SUBROUTINE SPHRCL_SEED()
             
             ALLOCATE(RSEED(NDIM,SEEDSIZE))
             IF(RIGIDT) ALLOCATE(QSEED(4,SEEDSIZE))
-            IF(BINARYT .OR. RACEMICT) ALLOCATE(SEEDID(SEEDSIZE))
+            IF(BINARYT) ALLOCATE(SEEDID(SEEDSIZE))
             
             SEEDSIZE = 0
             
@@ -434,12 +424,6 @@ SUBROUTINE SPHRCL_SEED()
                     
                     IF(BINARYT) THEN
                         IF(MOD(J1,2)==0) THEN
-                            SEEDID(SEEDSIZE) = 0
-                        ELSE
-                            SEEDID(SEEDSIZE) = 1
-                        ENDIF
-                    ELSEIF(RACEMICT) THEN
-                        IF(MOD(((J1-1)-MOD((J1-1),12))/12+1,2)==0) THEN
                             SEEDID(SEEDSIZE) = 0
                         ELSE
                             SEEDID(SEEDSIZE) = 1
@@ -459,7 +443,7 @@ END SUBROUTINE
 SUBROUTINE ADD_SEED()
 
     USE COMMONS, ONLY: DP, CDP, NPART, NDIM, SEEDSIZE, R, Q, RSEED, QSEED, SEEDSIZE, SEEDRADIUS, RIGIDT
-    USE COMMONS, ONLY: BINARYT, SEEDID, BNRYRTIOT, BNRYA, RACEMICT, BOX
+    USE COMMONS, ONLY: BINARYT, SEEDID, BNRYRTIOT, BNRYA, BOX
     USE ROTATIONS_MODULE, ONLY: RANDOM_QUATERNION
 
     IMPLICIT NONE
@@ -640,52 +624,6 @@ SUBROUTINE ADD_SEED()
                     ENDIF
                 ELSE
                     SHIFT = FLUIDU+COUNT-NFILL
-                ENDIF
-                NEWR(:,SHIFT) = R(:,J1)
-                IF(RIGIDT) NEWQ(:,SHIFT) = Q(:,J1)
-            ENDIF
-        ENDDO
-
-    ELSEIF(RACEMICT) THEN
-        NODD = SUM(SEEDID)
-        NEVN = SEEDSIZE-NODD
-        CEVN = 0
-        CODD = 0
-
-        DO J1 = 1, SEEDSIZE
-            IF(SEEDID(J1)==0) THEN
-                CEVN  = CEVN + 1
-                SHIFT = 12+CEVN
-                SHFTE = SHIFT
-                IF(MOD(CEVN,12)==0) CEVN = CEVN + 12
-            ELSE
-                CODD  = CODD + 1
-                SHIFT = MOD(((CODD-1)-MOD((CODD-1),12))/12+1,2)+CODD-1
-                SHFTO = SHIFT
-                IF(MOD(CODD,12)==0) CODD = CODD + 12
-            ENDIF
-            NEWR(:,SHIFT) = RSEED(:,J1)
-            IF(RIGIDT) NEWQ(:,SHIFT) = QSEED(:,J1)
-        ENDDO
-
-        COUNT = 0 
-
-        FLUIDL = 12-MOD(SHFTO,12)
-        FLUIDU = 12-MOD(SHFTE,12)
-        NFILL  = FLUIDL+FLUIDU
-
-        DO J1 = 1, NPART
-            IF(COUNT == NPART-SEEDSIZE) EXIT
-            IF(.NOT. ANY(DELPART(1:NOVRLP) == J1)) THEN
-                COUNT = COUNT + 1
-                IF(COUNT <= NFILL) THEN
-                    IF(COUNT<=FLUIDL)THEN
-                        SHIFT = SHFTO+COUNT
-                    ELSE
-                        SHIFT = SHFTE+COUNT-FLUIDL
-                    ENDIF
-                ELSE
-                    SHIFT = SHIFT+1
                 ENDIF
                 NEWR(:,SHIFT) = R(:,J1)
                 IF(RIGIDT) NEWQ(:,SHIFT) = Q(:,J1)

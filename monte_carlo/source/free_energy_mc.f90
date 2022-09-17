@@ -12,7 +12,7 @@ MODULE FREE_ENERGY_MC
     
         USE COMMONS, ONLY: DP, CDP, NDIM, NPART, NSITES, NSTEP, BLKLNGTH, PI, HLFPI, TWOPI, PE, OVERLAPT, BOX, RIGIDT, BETAKB, R, Q
         USE COMMONS, ONLY: RBSITES, REFSITE, RBREF, RREF, LAM_SS, LAMOR, RCUT_SS, RCUTSQ_SS, SSMOVERATIO, SSID, U_SS, U_EIN_OR
-        USE COMMONS, ONLY: FLFET, SCHSMIT, LAMTR, FLID, LAMTR, DRCOM, U_EIN_TR, EXP_U_EIN, RACEMICT, REFSITE2
+        USE COMMONS, ONLY: FLFET, SCHSMIT, LAMTR, FLID, LAMTR, DRCOM, U_EIN_TR, EXP_U_EIN
         USE COMMONS, ONLY: CLUSTERMOVET, CLSTRRATIO, LRGCLSTRT, LRGCLSTRRATIO, LRGCLSTMVT
         USE CELL_LIST, ONLY: C_INDEX, MOVE_IN_LIST
         IMPLICIT NONE
@@ -348,17 +348,8 @@ MODULE FREE_ENERGY_MC
                     QN = RANDOM_ROTATE_QUATERNION ( MAXDRT, QO )
                 !   Update the rigid body sites of the particle being displaced
                     RM   = Q_TO_RM( QN )
-                    IF(RACEMICT) RC1 = MOD(((PID-1)-MOD((PID-1),12))/12+1,2)
                     DO J1 = 1, NSITES
-                        IF(RACEMICT) THEN
-                            IF(RC1==1) THEN
-                                NEW_RBSITES(:,J1) = MATMUL(RM ,REFSITE(:,J1))
-                            ELSE
-                                NEW_RBSITES(:,J1) = MATMUL(RM ,REFSITE2(:,J1))
-                            ENDIF
-                        ELSE
-                            NEW_RBSITES(:,J1) = MATMUL(RM ,REFSITE(:,J1))
-                        ENDIF
+                        NEW_RBSITES(:,J1) = MATMUL(RM ,REFSITE(:,J1))
                     ENDDO
                 !   Calculate the energy associated with the rotational move.
                     CALL EINSTEIN_OR(RBREF(:,:,PID), NEW_RBSITES, NEW_EIN_OR, REJCT_ORTN)

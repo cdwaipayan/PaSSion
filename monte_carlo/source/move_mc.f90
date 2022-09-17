@@ -4,7 +4,7 @@
 
     !     This subroutine performs a single-particle Monte Carlo move.
 
-        USE COMMONS, ONLY: DP, CDP, NDIM, NPART, R, Q, BETAKB, BOX, MAXDTR, MAXDRT, SPET, RACEMICT, REFSITE2, &
+        USE COMMONS, ONLY: DP, CDP, NDIM, NPART, R, Q, BETAKB, BOX, MAXDTR, MAXDRT, SPET,  &
         NTMOVES, NRMOVES, ACCPTCT, ACCPTCR, VIRTEMP, COLLDT, PINT, PINKAP2, PINKAPA, TRQ, CELLLISTT, RQ, RIGIDT, PE, &
         INDXP, VIR, OVERLAPT, NSITES, RBSITES, REFSITE, CLUSTERT, HALFST, EQUISEEDT, CLUSTERMOVET, CLSTRRATIO
         USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRSZ, ACCPTCTC, ACCPTCRC, LRGCLSTRT, LRGCLSTRRATIO, LRGCLSTMVT
@@ -146,17 +146,8 @@
                     Q(:,INDXP) = RANDOM_ROTATE_QUATERNION ( MAXDRT, QO )
                     !   Update the rigid body sites of the particle being displaced
                     RM   = Q_TO_RM( Q(:,INDXP) )
-                    IF(RACEMICT) RC1 = MOD(((INDXP-1)-MOD((INDXP-1),12))/12+1,2)
                     DO J1 = 1, NSITES
-                        IF(RACEMICT) THEN
-                            IF(RC1==1) THEN
-                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
-                            ELSE
-                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE2(:,J1))
-                            ENDIF
-                        ELSE
-                            RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
-                        ENDIF
+                        RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
                     ENDDO
                 ENDIF
 
@@ -231,17 +222,8 @@
                         Q(:,J2) = QOLD(:,J2)
                     !   Update rigid body sites to previous positions
                         RM    = Q_TO_RM( Q(:,J2) )
-                        IF(RACEMICT) RC1 = MOD(((J2-1)-MOD((J2-1),12))/12+1,2)
                         DO J3 = 1, NSITES
-                            IF(RACEMICT) THEN
-                                IF(RC1==1) THEN
-                                    RBSITES(:,J3,J2) = MATMUL(RM,REFSITE(:,J3))
-                                ELSE
-                                    RBSITES(:,J3,J2) = MATMUL(RM,REFSITE2(:,J3))
-                                ENDIF
-                            ELSE
-                                RBSITES(:,J3,J2) = MATMUL(RM,REFSITE(:,J3))
-                            ENDIF
+                            RBSITES(:,J3,J2) = MATMUL(RM,REFSITE(:,J3))
                         ENDDO
                     !   Restore the position of the particle in the cell list
                         IF(CELLLISTT) THEN
@@ -254,17 +236,8 @@
                     Q(:,INDXP) = QO
                 !   Update rigid body sites to previous positions
                     RM    = Q_TO_RM( Q(:,INDXP) )
-                    IF(RACEMICT) RC1 = MOD(((INDXP-1)-MOD((INDXP-1),12))/12+1,2)
                     DO J1 = 1, NSITES
-                        IF(RACEMICT) THEN
-                            IF(RC1==1) THEN
-                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
-                            ELSE
-                                RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE2(:,J1))
-                            ENDIF
-                        ELSE
-                            RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
-                        ENDIF
+                        RBSITES(:,J1,INDXP) = MATMUL(RM ,REFSITE(:,J1))
                     ENDDO
                 ENDIF
             ENDIF

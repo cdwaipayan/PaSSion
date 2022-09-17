@@ -189,27 +189,6 @@ MODULE COMMONS
     ! Define the half-opening angles of each of the patches on the particles
     REAL(KIND=DP)               :: KFDELA, KFDELB, KFDELC, KFDELD 
 !------------------------------------------------------------------------------------------
-!   Parameters related to particles with rectangular patches.
-!------------------------------------------------------------------------------------------
-    LOGICAL                     :: KFRECT, RACEMICT
-    ! Define the two half-opening angles for each rectangular patch
-    REAL(KIND=DP)               :: KFDELA1, KFDELA2, KFDELB1, KFDELB2
-    ! Lambda defines the range of the square-well
-    REAL(KIND=DP)               :: KF_LAM, KF_LAM2
-    ! Define the skew angle between the two rectangular patches (CHI)
-    REAL(KIND=DP)               :: SKEWAB
-    ! Parameters for visualization
-    REAL(KIND=DP)               :: TANA, TANB
-    ! Parameters for racemic systems
-    REAL(KIND=DP)               :: SKEWAB2
-    REAL(KIND=DP), ALLOCATABLE  :: REFSITE2(:,:)
-!------------------------------------------------------------------------------------------
-!   Parameters related to "gyroidal" 4-patch particles with patch-pairs on each hemisphere.
-!------------------------------------------------------------------------------------------
-    LOGICAL                     :: GYROIDALT
-    ! Beta defines the angle between the patch pairs
-    REAL(KIND=DP)               :: GYBETA1, GYBETA2
-!------------------------------------------------------------------------------------------
 !   Parameters related to quasi-2D systems interacting with a hydrophobic surface.
 !------------------------------------------------------------------------------------------
     LOGICAL                     :: TDSRFT, GEN2D

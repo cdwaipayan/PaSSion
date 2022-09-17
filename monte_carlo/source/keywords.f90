@@ -557,33 +557,6 @@ SUBROUTINE KEYWORDS
                 HEADTAILT = .TRUE.
                 NSITES    = 2
                 CALL READF(2, LSTAR)
-    
-            ELSE IF (WORD == 'KFREC') THEN
-                KFRECT    = .TRUE.
-                HARDT     = .TRUE.
-                RIGIDT    = .TRUE.
-                NSITES    = 6
-    
-                CALL READF(2, KFAA)
-                CALL READF(3, KFBB)
-                CALL READF(4, KFDELA1)
-                CALL READF(5, KFDELA2)
-                CALL READF(6, KFDELB1)
-                CALL READF(7, KFDELB2)
-                CALL READF(8, SKEWAB)
-                CALL READF(9, KF_LAM)
-                IF (NITEM > 9) THEN
-                    RACEMICT = .TRUE.
-                    CALL READF(10, SKEWAB2)
-                ELSE
-                    RACEMICT = .FALSE.
-                ENDIF
-                
-                KF_LAM2 = KF_LAM*KF_LAM
-                RCUT    = KF_LAM
-                RCUTSQ  = KF_LAM2
-
-                IF(KFAA == KFBB .AND. SKEWAB==0.0_dp) HEADTAILT = .TRUE.
 
             ELSE IF (WORD == 'GAYBERNE') THEN
                 GBT       = .TRUE.
@@ -602,25 +575,6 @@ SUBROUTINE KEYWORDS
                     CALL READF(7, DPMU)
                     DPMUSQ = DPMU*DPMU
                 ENDIF
-            
-            ELSE IF (WORD == 'GYROIDAL') THEN
-                GYROIDALT    = .TRUE.
-                HARDT  = .TRUE.
-                RIGIDT = .TRUE.
-                NSITES = 4
-
-                CALL READF(2,  KFAA) ! = KFBB
-                CALL READF(3,  KFCC) ! = KFDD
-                CALL READF(4,  KFDELA) ! = KFDELB
-                CALL READF(5,  KFDELC) ! = KFDELD
-                CALL READF(6,  GYBETA1)
-                CALL READF(7,  GYBETA2)
-                CALL READF(8,  SKEWAB) !CHI
-                CALL READF(9,  KFLAMA) ! = KFLAMB = KFLAMC = KFLAMD
-                
-                !RCUT   = MAX(KFLAMA, KFLAMB, KFLAMC, KFLAMD) !FOR WHEN RANGES /=
-                RCUT   = KFLAMA
-                RCUTSQ = RCUT**2
 
             ENDIF
     

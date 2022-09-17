@@ -4,7 +4,7 @@ SUBROUTINE POTENTIAL(ENERGY)
     !   system or for a given particle whose index is given by INDXP.
     !==================================================================================
         USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, BOX, SPET, INDXP, RCUTSQ, RIGIDT, TDSRFT, SPHERECNFT, SLFFCT
-        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, VIRTEMP, CELLLISTT, RACEMICT, REFSITE2, GBT, EWALDT, NC
+        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, VIRTEMP, CELLLISTT, GBT, EWALDT, NC
         USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRID
         
         USE CELL_LIST, ONLY: C_INDEX, NEIGHBOURS
@@ -51,17 +51,8 @@ SUBROUTINE POTENTIAL(ENERGY)
             !   Extract the directional unit vectors for the rigid sites on the particles
                 DO J1 = 1, NPART
                     RMI     = Q_TO_RM( Q(:,J1) )
-                    IF(RACEMICT) RC1 = MOD(((J1-1)-MOD((J1-1),12))/12+1,2)
                     DO J2 = 1, NSITES
-                        IF(RACEMICT) THEN
-                            IF(RC1==1) THEN
-                                RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
-                            ELSE
-                                RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE2(:,J2))
-                            ENDIF
-                        ELSE
-                            RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
-                        ENDIF
+                        RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
                     ENDDO
                 ENDDO
             ENDIF
@@ -157,7 +148,7 @@ SUBROUTINE POTENTIAL(ENERGY)
     SUBROUTINE PAIR_POTENTIAL(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
         USE COMMONS, ONLY: DP, NDIM, HARDT, OVERLAPT, MODT
-        USE COMMONS, ONLY: KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, KFRECT, HDMBLT, HTPRT, YUKT, GBT, GYROIDALT
+        USE COMMONS, ONLY: KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, HDMBLT, HTPRT, YUKT, GBT
         
         IMPLICIT NONE
     
@@ -180,11 +171,8 @@ SUBROUTINE POTENTIAL(ENERGY)
                 RETURN
             ELSE
         !   Kern-Frenkel patchy particles
-                IF (KFT .OR. GYROIDALT) THEN
+                IF (KFT) THEN
                     CALL KF(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
-        !   Kern-Frenkel patchy particles with rectangular patches
-                ELSEIF (KFRECT) THEN
-                    CALL KF_REC(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
                 ELSEIF (HDMBLT) THEN
                     CALL HDMBL(PAIR_ENERGY, J1, J2)
                 ELSEIF(HTPRT) THEN
@@ -245,7 +233,7 @@ SUBROUTINE POTENTIAL(ENERGY)
     
     SUBROUTINE INIT_POT()
     
-        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, KFRECT, HDMBLT, HTPRT, GBT, GYROIDALT
+        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, HDMBLT, HTPRT, GBT
         IMPLICIT NONE
     
         RCUTSQ = RCUT*RCUT
@@ -264,14 +252,10 @@ SUBROUTINE POTENTIAL(ENERGY)
             CALL DEF_ETP()
         ELSEIF (DMBLGLJT) THEN
             CALL DEF_DMBL_GLJ()
-        ELSEIF (KFRECT) THEN
-            CALL DEF_KF_REC()
         ELSEIF (HDMBLT) THEN
             CALL DEF_HDMBL()
         ELSEIF (GBT) THEN
             CALL DEF_GB_DSCS()
-        ELSEIF (GYROIDALT) THEN
-            CALL DEF_GYROIDAL()
         ENDIF
     
     END SUBROUTINE INIT_POT

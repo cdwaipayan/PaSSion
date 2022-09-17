@@ -269,7 +269,6 @@ CONTAINS
 !       ==================================================================
 
         USE COMMONS, ONLY: R, NSITES, HLFLNGTH, Q, REFSITE, RIGIDT, ETPT, BOPCLSTRT, CLSTRCOM, PCLSTRID, BINARYT, BNRYRTIOT, BNRYA
-        USE COMMONS, ONLY: KFRECT, TANA, TANB, RBSITES
         USE ROTATIONS_MODULE, ONLY: Q_TO_RM
 
         INTEGER, INTENT(IN)         :: CLSTR(NPBOP), LRGST_X_CLSTR, LRGST_X_ID
@@ -351,24 +350,15 @@ CONTAINS
                 ENDIF
             !   Add rigid body sites to particles
                 IF(RIGIDT) THEN
-                    IF(KFRECT) THEN
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.37_dp*RBSITES(:,1,J1)
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,1,J1)+TANA*RBSITES(:,2,J1))
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,1,J1)-TANA*RBSITES(:,2,J1))
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.37_dp*RBSITES(:,4,J1)
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,4,J1)+TANB*RBSITES(:,5,J1))
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,4,J1)-TANB*RBSITES(:,5,J1))
-                    ELSE
-                        DO J2 = 1, NSITES
-                            RM = Q_TO_RM( Q(:,J1) )
-                            IF(ETPT .AND. HLFLNGTH /= 0.0_dp) THEN
-                                RBCOORDS = R(:,J1) + HLFLNGTH*MATMUL(RM,REFSITE(:,J2))
-                            ELSE
-                                RBCOORDS = R(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
-                            ENDIF
-                            WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
-                        ENDDO
-                    ENDIF
+                    DO J2 = 1, NSITES
+                        RM = Q_TO_RM( Q(:,J1) )
+                        IF(ETPT .AND. HLFLNGTH /= 0.0_dp) THEN
+                            RBCOORDS = R(:,J1) + HLFLNGTH*MATMUL(RM,REFSITE(:,J2))
+                        ELSE
+                            RBCOORDS = R(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
+                        ENDIF
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    ENDDO
                 ENDIF
             ENDDO
         ENDIF
