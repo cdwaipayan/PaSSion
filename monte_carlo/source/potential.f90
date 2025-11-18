@@ -3,9 +3,10 @@ SUBROUTINE POTENTIAL(ENERGY)
     !   Subroutine to calculate the potential energy associated either with the whole
     !   system or for a given particle whose index is given by INDXP.
     !==================================================================================
-        USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, BOX, SPET, INDXP, RCUTSQ, RIGIDT, TDSRFT, SPHERECNFT, SLFFCT
-        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, VIRTEMP, CELLLISTT, GBT, EWALDT, NC
-        USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRID
+        USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, BOX, SPET, INDXP, RCUTSQ, RIGIDT, OBJCTT, MULTICHAINET, ONEBONDT, NPBONDS
+        USE COMMONS, ONLY: RBSITES, REFSITE, NSITES, CELLLISTT, RACEMICT, REFSITE2, POLYCHAINT, N_POLY_TOT
+        USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRID, RCHTT, OVERLAPT, N_POLY_L!, PNEIGHS
+        USE COMMONS, ONLY: STRESST, VIRTEMP, STRESSTEMP, BYUKWAT, BNRYA, KFT, SPHERECNFT
         
         USE CELL_LIST, ONLY: C_INDEX, NEIGHBOURS
         
@@ -13,7 +14,7 @@ SUBROUTINE POTENTIAL(ENERGY)
         IMPLICIT NONE
     
     !   Counters for the loops   
-        INTEGER       :: J1, J2, J1START, J1END, RC1
+        INTEGER       :: J1, J2, J1START, J1END, RC1, N_RIG_P
     !   Parameters related to the translational coordinates of the particles         
         REAL(KIND=DP) :: RI(NDIM), RJ(NDIM), RIJ(NDIM), RIJSQ
     !   Parameters related to the orientational coordinates of the particles        
@@ -22,14 +23,13 @@ SUBROUTINE POTENTIAL(ENERGY)
         REAL(KIND=DP) :: PAIR_ENERGY
     !   Parameters related to cell-list 
         INTEGER       :: CI(3), J_LIST(NPART), JJ
-    !   Parameters related to reciprocal part of Ewald sum
-        REAL(KIND=DP) :: TCOS(NDIM,0:NC,NPART), TSIN(NDIM,0:NC,NPART)
         
     !   PARAMETER TO BE OUTPUT FROM SUBROUTINE
         REAL(KIND=DP), INTENT(OUT) :: ENERGY
     
-        ENERGY   = 0.0_dp
-        VIRTEMP  = 0.0_dp
+        ENERGY  = 0.0_dp
+        VIRTEMP = 0.0_dp
+        IF(STRESST) STRESSTEMP = 0.0_dp
     
         IF (SPET) THEN
         !   Calculating the energy associated with a single particle Monte Carlo move.
@@ -47,35 +47,55 @@ SUBROUTINE POTENTIAL(ENERGY)
                 J1END = NPART-1
             ENDIF
             
-            IF(RIGIDT) THEN
+            IF(RIGIDT .AND. (.NOT. POLYCHAINT)) THEN
             !   Extract the directional unit vectors for the rigid sites on the particles
-                DO J1 = 1, NPART
+                IF(BYUKWAT) THEN
+                    N_RIG_P = BNRYA
+                ELSE
+                    N_RIG_P = NPART
+                ENDIF
+                DO J1 = 1, N_RIG_P!NPART
                     RMI     = Q_TO_RM( Q(:,J1) )
+                    IF(RACEMICT) RC1 = MOD(((J1-1)-MOD((J1-1),12))/12+1,2)
                     DO J2 = 1, NSITES
-                        RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
+                        IF(RACEMICT) THEN
+                            IF(RC1==1) THEN
+                                RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
+                            ELSE
+                                RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE2(:,J2))
+                            ENDIF
+                        ELSE
+                            RBSITES(:,J2,J1) = MATMUL(RMI,REFSITE(:,J2))
+                        ENDIF
                     ENDDO
                 ENDDO
             ENDIF
     
         ENDIF
-
-        IF(GBT .AND. EWALDT) CALL EVAL_SIN_COS(TCOS,TSIN)
     
         DO J1 = J1START, J1END
         !   Position of particle I
             RI  = R(:,J1)
 
-            IF(TDSRFT) THEN
+            IF(ONEBONDT) NPBONDS = 0
+
+            IF(OBJCTT) THEN
                 PAIR_ENERGY = 0.0_dp
-                CALL KF_SURFACE(PAIR_ENERGY, RI, J1)
+                CALL OBJECT_PARTICLE_ENERGY(PAIR_ENERGY, J1, RI)
                 ENERGY = ENERGY + PAIR_ENERGY
             ENDIF
 
-            IF (GBT .AND. EWALDT) THEN
+            IF(POLYCHAINT.AND.(J1<=N_POLY_TOT).AND.(.NOT. MULTICHAINET).AND.(.NOT. RCHTT).AND.(N_POLY_L>1)) THEN
                 PAIR_ENERGY = 0.0_dp
-                CALL DIPLR_DSCS_RECIP(J1,PAIR_ENERGY,TCOS,TSIN)
-                ENERGY = ENERGY + PAIR_ENERGY - SLFFCT
+                CALL INTRA_POLYMER(PAIR_ENERGY, J1)
+                ENERGY = ENERGY + PAIR_ENERGY
             ENDIF
+
+            ! IF(KFT .AND. SPHERECNFT) THEN
+            !     PAIR_ENERGY = 0.0_dp
+            !     CALL KF_SPHERICAL_SURF(PAIR_ENERGY,J1)
+            !     ENERGY = ENERGY + PAIR_ENERGY
+            ! ENDIF
     
             IF(CELLLISTT) THEN
     
@@ -122,34 +142,28 @@ SUBROUTINE POTENTIAL(ENERGY)
             !   Position of particle J
                 RJ    = R(:,J2)
                 RIJ   = RI - RJ
-                
-                IF(.NOT. SPHERECNFT) THEN
-                    IF(TDSRFT) THEN
-                        RIJ(1:2) = RIJ(1:2) - BOX(1:2)*ANINT( RIJ(1:2)/BOX(1:2) )
-                    ELSE
-                        RIJ   = RIJ - BOX*ANINT( RIJ/BOX )
-                    ENDIF
-                ENDIF
+                IF(.NOT. SPHERECNFT) RIJ = RIJ - BOX*ANINT( RIJ/BOX )
                 RIJSQ = DOT_PRODUCT(RIJ,RIJ)
-
             !   Check if the particle J is within the cutoff distance
                 IF (RIJSQ <= RCUTSQ) THEN
                     PAIR_ENERGY = 0.0_dp
                     CALL PAIR_POTENTIAL(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                    IF(OVERLAPT) RETURN
                     ENERGY = ENERGY + PAIR_ENERGY
                 ENDIF ! Check if particles are within cutoff
             ENDDO ! Loop over particles j
         ENDDO ! Loop over particles i
-    
+        
         VIRTEMP = (1.0_dp/3.0_dp)*VIRTEMP
     
     END SUBROUTINE POTENTIAL
     
     SUBROUTINE PAIR_POTENTIAL(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
-        USE COMMONS, ONLY: DP, NDIM, HARDT, OVERLAPT, MODT
-        USE COMMONS, ONLY: KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, HDMBLT, HTPRT, YUKT, GBT
-        
+        USE COMMONS, ONLY: DP, NDIM, HARDT, OVERLAPT, MODT, BYUKWAT, BNRYA
+        USE COMMONS, ONLY: HST, KFT, GLJT, PGLJT, DMBLGLJT, KIHARAT, PGLJT, CPPT, ETPT, KFRECT, HDMBLT, HTPRT, YUKT
+        USE COMMONS, ONLY: BHST, BGLJT, NMTCCT, OBLATESPHYT, POLYCHAINT, N_POLY_L, N_POLY_TOT, MULTICHAINET, TRIANGLET
+
         IMPLICIT NONE
     
     !   Particle indices 
@@ -165,20 +179,27 @@ SUBROUTINE POTENTIAL(ENERGY)
     !   ---------------------------------------------------
     !   Pair potentials which have hard-core repulsion
     !   ---------------------------------------------------
-            IF (RIJSQ < 1.0_dp) THEN
-        !   Check if hard particles are overlapping, if yes reject the move
-                OVERLAPT = .TRUE.
-                RETURN
+            IF(BHST) THEN
+                CALL BINARY_HS(J1, J2, RIJSQ)
             ELSE
-        !   Kern-Frenkel patchy particles
-                IF (KFT) THEN
-                    CALL KF(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
-                ELSEIF (HDMBLT) THEN
-                    CALL HDMBL(PAIR_ENERGY, J1, J2)
-                ELSEIF(HTPRT) THEN
-                    CALL HARD_TPR(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
-                ELSE
-                    STOP "UNDEFINED HARD-CORE POTENTIAL"
+                IF (RIJSQ < 1.0_dp) THEN
+            !   Check if hard particles are overlapping, if yes reject the move
+                    OVERLAPT = .TRUE.
+                    RETURN
+                ELSEIF(.NOT. HST) THEN
+            !   Kern-Frenkel patchy particles
+                    IF (KFT) THEN
+                        CALL KF(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+            !   Kern-Frenkel patchy particles with rectangular patches
+                    ELSEIF (KFRECT) THEN
+                        CALL KF_REC(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                    ELSEIF (HDMBLT) THEN
+                        CALL HDMBL(PAIR_ENERGY, J1, J2)
+                    ELSEIF(HTPRT) THEN
+                        CALL HARD_TPR(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                    ELSE
+                        STOP "UNDEFINED HARD-CORE POTENTIAL"
+                    ENDIF
                 ENDIF
             ENDIF
     
@@ -191,6 +212,9 @@ SUBROUTINE POTENTIAL(ENERGY)
 
             ELSEIF(GLJT) THEN
                 CALL GLJ(PAIR_ENERGY, RIJSQ)
+
+            ELSEIF(BGLJT) THEN
+                CALL BINARY_GLJ(PAIR_ENERGY, J1, J2, RIJSQ)
     
             ELSEIF (KIHARAT) THEN
                 CALL KIHARA(PAIR_ENERGY, RIJ, J1, J2)
@@ -199,17 +223,70 @@ SUBROUTINE POTENTIAL(ENERGY)
                 CALL PGLJ(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
             ELSEIF (CPPT) THEN
-                CALL CPP(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                IF(BYUKWAT) THEN
+                    IF(J1<=BNRYA .AND. J2<=BNRYA) THEN
+                        CALL CPP(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                    ELSE
+                        CALL BINARY_YUKAWA(PAIR_ENERGY, J1, J2, RIJSQ)
+                    ENDIF
+                ELSE
+                    CALL CPP(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
+                ENDIF
     
             ELSEIF (ETPT) THEN
                 CALL ETP(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
     
             ELSEIF (DMBLGLJT) THEN
                 CALL DMBL_GLJ(PAIR_ENERGY, J1, J2)
+            
+            ELSEIF(NMTCCT) THEN
+                CALL NEMATIC_COLLOIDS(PAIR_ENERGY, RIJ, RIJSQ)
 
-            ELSEIF (GBT) THEN
-                CALL DIPLR_DSCS(PAIR_ENERGY, RIJ, RIJSQ, J1, J2)
-    
+            ELSEIF((OBLATESPHYT .OR. TRIANGLET) .AND. POLYCHAINT) THEN
+                IF(J1>N_POLY_TOT) THEN
+            !   Scenario where particle I is a capsomer
+                    IF(J2>N_POLY_TOT) THEN
+                !   Scenario where particle J is a capsomer
+                        IF(OBLATESPHYT) THEN
+                            CALL OBLATE_SPHEROCYLINDER(PAIR_ENERGY, RIJ, J1, J2)
+                        ELSE
+                            CALL HARD_TRIANGLE(PAIR_ENERGY, RIJ, J1, J2)
+                        ENDIF
+                    ELSE
+                !   Scenario where particle J is a part of a polymer chain
+                        IF(OBLATESPHYT) THEN
+                            CALL DISK_POLYMER(PAIR_ENERGY, RIJ, J1, J2)
+                        ELSE
+                            CALL HARD_TRIANGLE_SPHERE(PAIR_ENERGY, RIJ, J1, J2)
+                        ENDIF
+                    ENDIF
+                ELSE
+            !   Scenario where particle I is a part of a polymer chain
+                    IF(J2>N_POLY_TOT) THEN
+                !   Scenario where particle J is a capsomer
+                        IF(OBLATESPHYT) THEN
+                            CALL DISK_POLYMER(PAIR_ENERGY, RIJ, J1, J2)
+                        ELSE
+                            CALL HARD_TRIANGLE_SPHERE(PAIR_ENERGY, RIJ, J1, J2)
+                        ENDIF
+                    ELSEIF( (.NOT. MULTICHAINET .AND. ABS(J1-J2)/=1) .OR. ((J1-1)/N_POLY_L/=(J2-1)/N_POLY_L) ) THEN
+                !   Scenario where particle J is a part of a polymer chain. Only compute interactions between
+                !   beads that are not harmonically attached to one another.
+                        CALL INTER_POLYMER(PAIR_ENERGY, J1, J2, RIJSQ)
+                    ENDIF
+                ENDIF
+
+            ELSEIF(OBLATESPHYT) THEN
+                CALL OBLATE_SPHEROCYLINDER(PAIR_ENERGY, RIJ, J1, J2)
+
+            ELSEIF(TRIANGLET) THEN
+                CALL HARD_TRIANGLE(PAIR_ENERGY, RIJ, J1, J2)
+
+            ELSEIF( POLYCHAINT .AND. N_POLY_L > 1) THEN
+                IF( (.NOT. MULTICHAINET .AND. ABS(J1-J2)/=1) .OR. ((J1-1)/N_POLY_L/=(J2-1)/N_POLY_L) ) THEN
+                    CALL INTER_POLYMER(PAIR_ENERGY, J1, J2, RIJSQ)
+                ENDIF
+
             ELSE
                 PRINT *, "NO POTENTIAL SELECTED, STOPPING PROGRAM."
                 STOP " Stopping in potential.f90"
@@ -233,13 +310,16 @@ SUBROUTINE POTENTIAL(ENERGY)
     
     SUBROUTINE INIT_POT()
     
-        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, HDMBLT, HTPRT, GBT
+        USE COMMONS, ONLY: RCUT, RCUTSQ, GLJT, KIHARAT, KFT, PGLJT, CPPT, ETPT, DMBLGLJT, KFRECT, HDMBLT, HTPRT
+        USE COMMONS, ONLY: BHST, BGLJT, NMTCCT, OBLATESPHYT, POLYCHAINT, TRIANGLET
         IMPLICIT NONE
     
         RCUTSQ = RCUT*RCUT
     
         IF (GLJT) THEN
             CALL DEF_GLJ()
+        ELSEIF (BHST .OR. BGLJT) THEN
+            CALL DEF_BINARY_SPHERES()
         ELSEIF (KIHARAT) THEN
             CALL DEF_KIHARA()
         ELSEIF (KFT) THEN
@@ -252,10 +332,16 @@ SUBROUTINE POTENTIAL(ENERGY)
             CALL DEF_ETP()
         ELSEIF (DMBLGLJT) THEN
             CALL DEF_DMBL_GLJ()
+        ELSEIF (KFRECT) THEN
+            CALL DEF_KF_REC()
         ELSEIF (HDMBLT) THEN
             CALL DEF_HDMBL()
-        ELSEIF (GBT) THEN
-            CALL DEF_GB_DSCS()
+        ELSEIF(NMTCCT) THEN
+            CALL DEF_NEMATIC_COLLOIDS()
+        ELSEIF(OBLATESPHYT) THEN
+            CALL DEF_OBLATE_SPHEROCYLINDER()
+        ELSEIF(TRIANGLET) THEN
+            CALL DEF_PATCHY_TRIANGLE()
         ENDIF
     
     END SUBROUTINE INIT_POT
@@ -269,6 +355,7 @@ SUBROUTINE POTENTIAL(ENERGY)
         REAL(KIND=DP)   :: TOT_ENE, ENE_DIFF
     
         SPET  = .FALSE.
+
         CALL POTENTIAL(TOT_ENE)
     
         ENE_DIFF = ABS(TOT_ENE - PE)
@@ -300,40 +387,3 @@ SUBROUTINE POTENTIAL(ENERGY)
         ENDIF
     
     END SUBROUTINE PESRF
-
-    SUBROUTINE EVAL_SIN_COS(TCOS,TSIN)
-
-        USE COMMONS, ONLY: DP, NDIM, TWOPI, BOX, NC, NPART, R 
-    
-        IMPLICIT NONE
-    
-        INTEGER       :: J, K
-        REAL(KIND=DP) :: T(NDIM), TT(NDIM), U(NDIM), W(NDIM), TCOS(NDIM,0:NC,NPART), TSIN(NDIM,0:NC,NPART)
-    
-        T = TWOPI/BOX
-        TCOS = 0.D0; TSIN = 0.D0
-    
-        DO J = 1, NPART
-            TT = T*R(:,J)
-        ! Trig values when |n|=0
-            TCOS(:,0,J) = 1.0_dp
-            TSIN(:,0,J) = 0.0_dp
-        ! Trig values when |n|=1
-            TCOS(:,1,J) = COS(TT)
-            TSIN(:,1,J) = SIN(TT)
-        ! Trig values when |n|=2
-            U = 2.0_dp*TCOS(:,1,J)
-            TCOS(:,2,J) = U*TCOS(:,1,J)
-            TSIN(:,2,J) = U*TSIN(:,1,J)
-            TT = 1.0_dp
-            TCOS(:,2,J) = TCOS(:,2,J) - TT
-        ! Trig values when |n|>3
-            DO K = 3, NC
-                W = U*TCOS(:,K-1,J)
-                TCOS(:,K,J) = W - TCOS(:,K-2,J)
-                W = U*TSIN(:,K-1,J)
-                TSIN(:,K,J) = W - TSIN(:,K-2,J)
-            ENDDO
-        ENDDO
-    
-    END SUBROUTINE EVAL_SIN_COS

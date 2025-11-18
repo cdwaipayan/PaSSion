@@ -19,11 +19,24 @@ MODULE ROTATIONS_MODULE
     PUBLIC :: BOX_MULLER, RANDOM_VECTOR
 
 !   Public routines which operate on quaternions
-    PUBLIC :: ROTATE_QUATERNION, QUATMUL, Q_TO_RM
+    PUBLIC :: ROTATE_QUATERNION, QUATMUL, Q_TO_RM, CROSS
 !   Public routines to convert between quaternions and unit vectors
     PUBLIC :: Q_TO_UV, UV_TO_Q
 
 CONTAINS
+
+    FUNCTION CROSS (V1, V2) RESULT (V3)
+
+        IMPLICIT NONE
+
+        REAL(KIND=DP), INTENT(IN) :: V1(3), V2(3) 
+        REAL(KIND=DP)             :: V3(3)  
+
+        V3(1) = V1(2)*V2(3) - V1(3)*V2(2)
+        V3(2) = V1(3)*V2(1) - V1(1)*V2(3)
+        V3(3) = V1(1)*V2(2) - V1(2)*V2(1)
+
+    END FUNCTION
 
     FUNCTION BOX_MULLER ( MEAN, STD ) RESULT ( R )
     
@@ -193,6 +206,7 @@ CONTAINS
     END FUNCTION QUATMUL
 
     FUNCTION Q_TO_RM ( Q ) RESULT ( RM )
+        USE COMMONS, ONLY: INDXP
         IMPLICIT NONE
         REAL(KIND=DP), DIMENSION(3,3)             :: RM ! Returns a 3x3 rotation matrix calculated from
         REAL(KIND=DP), DIMENSION(0:3), INTENT(in) :: Q ! supplied quaternion

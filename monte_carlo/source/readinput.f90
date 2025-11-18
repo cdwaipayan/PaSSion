@@ -10,12 +10,13 @@ SUBROUTINE READITEM(WORD)
     CHARACTER (LEN = 16) :: WORD
     DATA SPACE /' '/, COMMA /','/, SQUOTE /''''/, DQUOTE /'"'/
 
-    LAST = 80
+    LAST = 120
 !     Find last non-blank character
 30  IF (CHAR(LAST) == SPACE) THEN
         LAST = LAST - 1
         IF (LAST > 1) GOTO 30
     ENDIF
+    
 !     Analyse input
     ITEM  = 1
     NITEM = 1
@@ -120,3 +121,26 @@ SUBROUTINE READF(ITEM, DPNMBR)
     READ (SUBSTR, *) DPNMBR
 
 END SUBROUTINE READF
+
+!     ----------------------------------------------------------------------------------------------
+
+SUBROUTINE READL(ITEM, LGVAL)
+
+    USE COMMONS, ONLY: LNGTH, LOC, CHAR, DP
+
+    IMPLICIT NONE
+
+    INTEGER :: ITEM, J, LGIVAL
+    CHARACTER (LEN=16) :: SUBSTR
+    LOGICAL            :: LGVAL
+
+    SUBSTR = CHAR(LOC(ITEM))
+    IF (LNGTH(ITEM) /=1) THEN
+        DO J = LOC(ITEM) + 1, LOC(ITEM) + LNGTH(ITEM) - 1 
+            SUBSTR = TRIM(SUBSTR)//CHAR(J)        
+        ENDDO
+    ENDIF
+    READ (SUBSTR, *) LGIVAL
+    LGVAL = TRANSFER(LGIVAL,LGVAL)
+
+END SUBROUTINE READL

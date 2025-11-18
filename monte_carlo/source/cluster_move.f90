@@ -54,7 +54,7 @@ CONTAINS
     !   the potential energy is calculated.
         DO
         !   Keep track of the size of the cluster at the beginning of the iteration so we can figure out by 
-        !   how much the cluster has groen from iteration to iteration.
+        !   how much the cluster has grown from iteration to iteration.
             CLSTRCNT = CLSTRSZ
         !   Calculate the pair energies associated with the current index particle and add 
         !   new particles to the cluster (this is currently done separately in each of the 
@@ -214,60 +214,62 @@ CONTAINS
 
     SUBROUTINE BUILD_ALL_CLUSTERS(BOPSNT)
 
-        USE COMMONS, ONLY: DP, R, NDIM, NPART, BOX, NCLSTRS, CLSTRADJ, CLSTRCOM, PCLSTR, PCLSTRID, CLURIJ, NPTT
+        USE COMMONS, ONLY: DP, R, NPART, BOX, NCLSTRS, CLSTRSZS, CLSTRADJ, CLSTRCOM, PCLSTR, PCLSTRID, CLURIJ, NPTT, PRNTCNF
+        USE STACK 
         IMPLICIT NONE
 
-        INTEGER                         :: J1, J2, CLSTRSZ(NPART), ICLU, PREF(NPART)
-        REAL(KIND=DP)                   :: RIJ(NDIM)
+        INTEGER                         :: J1, J2, PID, ICLU, PREF(NPART)
         LOGICAL, OPTIONAL, VALUE        :: BOPSNT
+
+        TYPE(STACK_VAR) :: S
 
         IF(.NOT. PRESENT(BOPSNT)) BOPSNT = .FALSE.
 
         NCLSTRS  = 0      ! Number of unique clusters in the system
         PCLSTRID = 0      ! Cluster ID associated with each particle.
         PREF     = 0      ! ID of the seed particle associated with each cluster 
-        CLSTRSZ  = 0      ! Size of each of the clusters
+        CLSTRSZS = 0      ! Size of each of the clusters
         CLSTRCOM = 0.0_dp ! Center-of-mass for each cluster
         PCLSTR   = 0.0_dp ! Relative position of each particle to the center-of-mass of its associated cluster.
 
-        DO J1 = 1, NPART
-        !   If the particle is yet to be added to a cluster, create a new cluster with the curent particle as the seed. 
-        !   Increment the total number of clusters by one. Initialise the sum for the center-of-mass for this cluster 
-        !   to the position of the seed particle.
-            IF( PCLSTRID(J1) == 0 ) THEN
+        J1  = 1
+        PID = 1
+        DO  
+            IF( EMPTY(S) ) THEN
+                DO WHILE(PCLSTRID(PID)/=0 .AND. PID<NPART)
+                    PID = PID + 1
+                ENDDO
+                IF(PID==NPART .AND. PCLSTRID(PID)/=0) EXIT
+                J1 = PID
                 NCLSTRS = NCLSTRS + 1
                 CLSTRCOM(:,NCLSTRS) = R(:,J1)
-                CLSTRSZ(NCLSTRS) = 1
+                CLSTRSZS(NCLSTRS) = 1
                 PCLSTRID(J1)  = NCLSTRS
+                ICLU = PCLSTRID(J1)
                 PREF(NCLSTRS) = J1
+            ELSE
+                J1 = POP(S)
             ENDIF
-        !   Convenient variable to use as the ID of the current cluster of interest.
-            ICLU = PCLSTRID(J1)
-        !   Check to which other particles the current particle is bonded to, making sure not to re-add particles
-        !   which are already in the cluster. Update the sum for the center-of-mass for the cluster, using the seed particle
-        !   as the anchor point (this avoids erroneous COMs for clusters which traverse boundaries).
+
+            IF(SUM(CLSTRADJ(J1,:))==0) PRINT *, J1
+
             DO J2 = 1, NPART
                 IF(J1==J2) CYCLE
-                IF( CLSTRADJ(J1,J2) == 1 .AND. ICLU /= PCLSTRID(J2) ) THEN
-                    CLSTRSZ(ICLU) = CLSTRSZ(ICLU) + 1
-                    PCLSTRID(J2) = ICLU
-                !   If building clusters for the computation of Steinhardt order parameter must also compute the
-                !   distance between the seed particle of the cluster and the remaining particles.
-                    IF(BOPSNT) THEN
-                        RIJ = R(:,J1) - R(:,J2)
-                        CLURIJ(:,J1,J2) = RIJ - BOX*ANINT( RIJ/BOX )
-                    ENDIF
-                !   Update the sum for the COM of the cluster
-                    IF(CLSTRADJ(PREF(ICLU),J2) == 0) CLURIJ(:,PREF(ICLU),J2) = CLURIJ(:,J1,J2) + CLURIJ(:,PREF(ICLU),J1)
-                    CLSTRCOM(:,ICLU) = CLSTRCOM(:,ICLU) + R(:,PREF(ICLU)) - CLURIJ(:,PREF(ICLU),J2)
+            !   Check to which other particles the current particle is bonded to, making sure not to re-add particles
+            !   which are already in the cluster. Update the sum for the center-of-mass for the cluster, using the seed particle
+            !   as the anchor point (this avoids erroneous COMs for clusters which traverse boundaries).
+                IF( CLSTRADJ(J1,J2) == 1 .AND. PCLSTRID(J1) /= PCLSTRID(J2) ) THEN
+                    CALL ADD_PARTICLE_2_CLUSTER(J1,J2,PCLSTRID(J1),PREF,BOPSNT)
+                    CALL PUSH(S,J2)
                 ENDIF
             ENDDO
+            IF(PID==NPART) EXIT
         ENDDO
          
         DO J1 = 1, NCLSTRS
         !   Calculate the COM for the clusters and the relative positions of the particles to the COM.
-            IF(CLSTRSZ(J1) > 1) THEN
-                CLSTRCOM(:,J1) = CLSTRCOM(:,J1) / REAL(CLSTRSZ(J1),DP)
+            IF(CLSTRSZS(J1) > 1) THEN
+                CLSTRCOM(:,J1) = CLSTRCOM(:,J1) / REAL(CLSTRSZS(J1),DP)
                 IF(NPTT) THEN
             !   Compute the vector connecting each particle in the cluster to the COM. This will be used later to place the 
             !   particles in the correct position following a volume scaling move.
@@ -278,9 +280,32 @@ CONTAINS
                     ENDDO
                 ENDIF
             !   If building clusters for the computation of Steinhardt order parameter fold the COM back into the simulation cell.
-                IF(BOPSNT) CLSTRCOM(:,J1) = CLSTRCOM(:,J1) - BOX*ANINT( CLSTRCOM(:,J1)/BOX )
+                IF(BOPSNT .OR. PRNTCNF) CLSTRCOM(:,J1) = CLSTRCOM(:,J1) - BOX*ANINT( CLSTRCOM(:,J1)/BOX )
             ENDIF
         ENDDO
+        ! STOP
+    END SUBROUTINE
+
+    SUBROUTINE ADD_PARTICLE_2_CLUSTER(J1,J2,ICLU,PREF,BOPSNT)
+
+        USE COMMONS, ONLY: DP, R, NDIM, NPART, BOX, CLSTRSZS, CLSTRADJ, CLSTRCOM, PCLSTRID, CLURIJ, PRNTCNF
+        IMPLICIT NONE
+
+        INTEGER, INTENT(IN)             :: J1, J2, ICLU, PREF(NPART)
+        REAL(KIND=DP)                   :: RIJ(NDIM)
+        LOGICAL, INTENT(IN)             :: BOPSNT
+
+        CLSTRSZS(ICLU) = CLSTRSZS(ICLU) + 1
+        PCLSTRID(J2) = ICLU
+    !   If building clusters for the computation of Steinhardt order parameter must also compute the
+    !   distance between the seed particle of the cluster and the remaining particles.
+        IF(BOPSNT .OR. PRNTCNF) THEN
+            RIJ = R(:,J1) - R(:,J2)
+            CLURIJ(:,J1,J2) = RIJ - BOX*ANINT( RIJ/BOX )
+        ENDIF
+    !   Update the sum for the COM of the cluster
+        IF(CLSTRADJ(PREF(ICLU),J2) < 1) CLURIJ(:,PREF(ICLU),J2) = CLURIJ(:,J1,J2) + CLURIJ(:,PREF(ICLU),J1)
+        CLSTRCOM(:,ICLU) = CLSTRCOM(:,ICLU) + R(:,PREF(ICLU)) - CLURIJ(:,PREF(ICLU),J2)
 
     END SUBROUTINE
 
@@ -310,6 +335,48 @@ CONTAINS
         DO J1 = 1, NPART
             R(:,J1) = PCLSTR(:,J1) + CLSTRCOM(:,PCLSTRID(J1))
             R(:,J1) = R(:,J1) - BOX*ANINT(R(:,J1)/BOX)
+        ENDDO
+
+    END SUBROUTINE
+
+    SUBROUTINE GET_CLSTR_NEIGHBOURS(BOPSNT)
+
+        USE COMMONS, ONLY: DP, NPART, NCLSTRS, PCLSTRID, CLSTRADJ, CLSTR_NEIGHS, CLSTR_NEIGH_CNT, CLURIJ, SPET
+    
+        IMPLICIT NONE
+    
+        INTEGER                  :: J1, J2, J3, C1, C2, NEICOUNT
+        REAL(KIND=DP)            :: PEO
+        LOGICAL, OPTIONAL, VALUE :: BOPSNT
+
+        IF(.NOT. PRESENT(BOPSNT)) BOPSNT = .FALSE.
+    
+    !   Extract the adjacency matrix for the system, and 
+    !   determine which particles belong to the same cluster.
+        CLSTRADJ = 0
+        CLURIJ   = 0.0_dp
+        SPET     = .FALSE.
+        CALL POTENTIAL(PEO)
+        CALL BUILD_ALL_CLUSTERS(BOPSNT)
+
+        CLSTR_NEIGHS    = 0
+        CLSTR_NEIGH_CNT = 0
+        
+        DO J1 = 1, NCLSTRS
+            NEICOUNT = 0
+            DO J2 = 1, NPART
+                C1 = PCLSTRID(J2)
+                IF(C1==J1) THEN
+                    DO J3 = 1, NPART
+                        C2 = PCLSTRID(J3)
+                        IF(CLSTRADJ(J2,J3) == -1 .AND. (.NOT.( ANY(CLSTR_NEIGHS(:,J1)==C2) ))) THEN
+                            NEICOUNT = NEICOUNT + 1
+                            CLSTR_NEIGHS(NEICOUNT,J1) = C2
+                        ENDIF
+                    ENDDO
+                ENDIF
+            ENDDO
+            CLSTR_NEIGH_CNT(J1) = NEICOUNT
         ENDDO
 
     END SUBROUTINE

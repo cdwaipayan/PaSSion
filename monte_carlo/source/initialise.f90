@@ -11,11 +11,12 @@ SUBROUTINE INITIALISE()
     IMPLICIT NONE
 
     INTEGER         :: J1, J2, RC1
-    REAL(KIND=DP)   :: CORP, RM(3,3), N
+    REAL(KIND=DP)   :: CORP, RM(3,3), N, POLYE
 
     INTEGER              :: SRAND48, XXX, SEED_N, SEED_J
     INTEGER, ALLOCATABLE :: SEED_ARRAY(:)
     DOUBLE PRECISION     :: SEED_U
+    LOGICAL              :: FILE_EXISTS
 
 !   *********************************************************************
     IF(.NOT. SEEDT) THEN
@@ -67,6 +68,13 @@ SUBROUTINE INITIALISE()
     ALLOCATE( R(NDIM,NPART) )
     IF(RIGIDT) THEN
         ALLOCATE( Q(4,NPART), REFSITE(NDIM,NSITES), RBSITES(NDIM,NSITES,NPART) )
+        IF(RACEMICT) ALLOCATE( REFSITE2(NDIM,NSITES) )
+    ENDIF
+    IF(STRAINT) TOT_STRAIN = 0.0_dp
+    IF(STRESST) THEN
+        ALLOCATE(VIR_TENS(NDIM,NDIM),STRESS(NDIM,NDIM),STRESSTEMP(NDIM,NDIM))
+        ALLOCATE(SUM_STRESS(NDIM,NDIM), SUM_STRESS_BLK(NDIM,NDIM), AV_STRESS(NDIM,NDIM))
+        ALLOCATE(AV_STRESS_BLK(NDIM,NDIM),STD_STRESS(NDIM,NDIM), STD_STRESS_SUM(NDIM,NDIM))
     ENDIF
 
 !---------------------------------------------------------------------
@@ -92,8 +100,6 @@ SUBROUTINE INITIALISE()
     ENDIF
 !   *************************************************************************
 
-    IF(GBT .AND. EWALDT) CALL DEF_DIPLR()
-
 !   *************************************************************************
     IF (RIGIDT) THEN
     !   Check that a rotational stepsize has been given, if not set it to be 
@@ -102,10 +108,24 @@ SUBROUTINE INITIALISE()
     !   Initialise rigid body sites
         DO J1 = 1, NPART
             RM = Q_TO_RM( Q(:,J1) )
+            IF(RACEMICT) RC1 = MOD(((J1-1)-MOD((J1-1),12))/12+1,2)
             DO J2 = 1, NSITES
-                RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
+                IF(RACEMICT) THEN
+                    IF(RC1==1) THEN
+                        RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
+                    ELSE
+                        RBSITES(:,J2,J1) = MATMUL(RM,REFSITE2(:,J2))
+                    ENDIF
+                ELSE
+                    RBSITES(:,J2,J1) = MATMUL(RM,REFSITE(:,J2))
+                ENDIF
             ENDDO
         ENDDO
+        IF(ONEBONDT) THEN
+            ALLOCATE(NPBONDS(NSITES))!,NPART),PNEIGHS(NSITES,6,NPART))
+            NPBONDS = 0
+            ! PNEIGHS = 0
+        ENDIF
     ENDIF
 
 !   *************************************************************************
@@ -143,13 +163,19 @@ SUBROUTINE INITIALISE()
 !   *************************************************************************
 !    Initialise parameters related to cluster move Monte Carlo.
 !   *************************************************************************
-    IF(CLUSTERMOVET .OR. BOPCLSTRT) THEN
-        ALLOCATE(CLSTR(NPART),RCLSTR(NDIM,NPART))
+    IF(CLUSTERMOVET .OR. BOPCLSTRT .OR. (POLYCHAINT .AND. (OBLATESPHYT .OR. TRIANGLET))) THEN
+        ALLOCATE(CLSTR(NPART),CLSTRSZS(NPART),RCLSTR(NDIM,NPART))
         CLSTR   = 0
         CLSTRSZ = 0
-        MAXDRTC = MAXDRT
-        MAXDTRC = MAXDTR
-        IF(NPTT .OR. BOPCLSTRT) THEN
+        INQUIRE(FILE="../finalrun.dat", EXIST=FILE_EXISTS)
+        IF((.NOT. CONTINUET) .OR. (.NOT. FILE_EXISTS)) THEN
+            MAXDRTC = MAXDRT
+            MAXDTRC = MAXDTR
+        ENDIF
+        IF(POLYCHAINT) THEN
+            IF(OB_BONDST) ALLOCATE(OB_N_BNDS(NPART),OB_NEIGHS(5,NPART))
+        ENDIF
+        IF(NPTT .OR. BOPCLSTRT .OR. PRNTCNF) THEN
             ALLOCATE(CLSTRADJ(NPART,NPART), CLSTRCOM(NDIM,NPART), PCLSTR(NDIM,NPART), PCLSTRID(NPART), CLURIJ(NDIM,NPART,NPART))
             NCLSTRS  = 0      ! Number of unique clusters in the system
             CLSTRADJ = 0      ! Adjacency matrix for the system (bonding criterion is system specific)
@@ -157,17 +183,34 @@ SUBROUTINE INITIALISE()
             CLSTRCOM = 0.0_dp ! Center-of-mass for each cluster
             PCLSTR   = 0.0_dp ! Relative position of each particle to the center-of-mass of its associated cluster.
         ENDIF
+        IF(PRNTCNF .OR. BOPCLSTRT) ALLOCATE(CLSTR_NEIGHS(12,NPART),CLSTR_NEIGH_CNT(NPART))
     ENDIF
+
+    IF(POLYCHAINT) THEN
+        IF((.NOT. CONTINUET) .OR. (.NOT. FILE_EXISTS)) THEN
+            MAXDPTR   = MAXDTR
+            MAXDPRT   = MAXDRT
+            MAXDPRATT = MAXDTR
+        ENDIF
+    ENDIF
+
+    IF(POLYCHAINT .AND. RADIUSGYRT) ALLOCATE(RGYR(N_POLY))
+    IF(OBJSURFT) THEN
+        IF(SURFWELLST) CALL DEF_SURFACE_WELLS()
+    ENDIF
+    IF(SPHERECNFT) VLM = 4.0_dp/3.0_dp * PI * SPHERERAD**3
 
 !   *************************************************************************
 !   Calculate the initial potential energy and virial of the system
 !   *************************************************************************
     IF(BOPCLSTRT) VLMCLUSTERMOVET = .TRUE.
-    IF(TDSRFT) SURFZ = -BOX(3)/2.0_dp
     CALL POTENTIAL(PE)
     IF(BOPCLSTRT) VLMCLUSTERMOVET = .FALSE.
     IF(OVERLAPT) STOP "INITIAL CONFIGURATION HAS OVERLAPPING PARTICLES"
     VIR = VIRTEMP
+    IF(STRESST) VIR_TENS = STRESSTEMP
+    ! PRINT *, VIR_TENS(1,1), VIR_TENS(2,2), VIR_TENS(3,3)
+    ! STOP
 
 !   *************************************************************************
 !    Initialise parameters related to the calculation of bond-orientational
@@ -264,9 +307,15 @@ SUBROUTINE INITIALISE()
         ALLOCATE( AVNUCCOUNTBLK(0:NPART), AVNUCCOUNT(0:NPART), STDNUCCOUNT(0:NPART), STDNUCCOUNTSUM(0:NPART) )
         NUCCOUNT = 0
         TOTNUCCOUNT = 0
+        IF(NUCCNTT) THEN
+            ! NPINK  = NPINK * TEMP
+            CRITNC = (3.0_dp/2.0_dp)*REAL(TRGTSEED)**(1.0_dp/3.0_dp)
+        ENDIF
         CALL UMBRELLA_BIAS(-1)
         PRINT *, "SEEDED WITH", CLSTRSIZE
     ENDIF
+
+    IF(UMBRELLAT .AND. QPINK>0.0_dp) CALL UMBRELLA_BIAS(-1)
 
 !   *************************************************************************
     PRINT *, 'initial potential energy =', PE
@@ -287,20 +336,34 @@ END SUBROUTINE
 SUBROUTINE READCONFIG
 !   This subroutine reads in a configuration
     USE COMMONS, ONLY: DP, NPART, NDIM, R, Q, RIGIDT, BOX, DENSITYT, PACKINGT, PI, VLM, CUBICT, ORTHORHOMBICT, RHO, UNITVECT
-    USE COMMONS, ONLY: CONTINUET, NPTT, SCALET, SPHERECNFT, SPHERERAD
+    USE COMMONS, ONLY: CONTINUET, NPTT, SCALET, MAXDTR, MAXDRT, MAXDTRC, MAXDRTC, MAXBOX, CLUSTERMOVET, POLYCHAINT, MAXDPTR, MAXDPRT
+    USE COMMONS, ONLY: POLYCHAINT, MAXDPTR, MAXDPRT, MAXDPRATT, SPHERECNFT, SPHERERAD
     USE ROTATIONS_MODULE, ONLY: UV_TO_Q
 
     IMPLICIT NONE
     
     INTEGER         :: J1, J2
     REAL(KIND=DP)   :: UV(NDIM), SCALE
+    LOGICAL         :: FILE_EXISTS
+
+    INQUIRE(FILE="../finalrun.dat", EXIST=FILE_EXISTS)
 
     IF(CONTINUET) THEN
         OPEN (UNIT = 33, FILE = '../finalpos.dat', STATUS = 'OLD')
-        IF (RIGIDT) OPEN (UNIT = 34, FILE = '../finalortn.dat', STATUS = 'UNKNOWN')
+        IF(FILE_EXISTS) OPEN (UNIT = 37, FILE = '../finalrun.dat', STATUS = 'OLD')
+        IF (RIGIDT) THEN
+            OPEN (UNIT = 34, FILE = '../finalortn.dat', STATUS = 'OLD')
+            IF(FILE_EXISTS) THEN
+                READ(37,*) MAXDTR, MAXDRT
+                IF(CLUSTERMOVET) READ(37,*) MAXDTRC, MAXDRTC
+            ENDIF
+        ELSE
+            IF(FILE_EXISTS) READ(37,*) MAXDTR
+        ENDIF
+        IF(FILE_EXISTS .AND. POLYCHAINT) READ(37,*) MAXDPTR, MAXDPRT, MAXDPRATT
     ELSE
         OPEN (UNIT = 33, FILE = 'initialpos.inp', STATUS = 'OLD')
-        IF (RIGIDT) OPEN (UNIT = 34, FILE = 'initialortn.inp', STATUS = 'UNKNOWN')
+        IF (RIGIDT) OPEN (UNIT = 34, FILE = 'initialortn.inp', STATUS = 'OLD')
     ENDIF
     
     IF(CONTINUET .AND. NPTT) THEN
@@ -309,6 +372,7 @@ SUBROUTINE READCONFIG
 
         READ(35,*) BOX
         READ(36,*) RHO
+        IF(FILE_EXISTS) READ(37,*) MAXBOX
 
         IF(SPHERECNFT) THEN
             VLM = 4.0_dp/3.0_dp * PI * SPHERERAD**3
@@ -331,7 +395,7 @@ SUBROUTINE READCONFIG
             BOX = SPHERERAD*2.0_dp
             RHO = REAL(NPART,DP)*PI/(6.0_dp*VLM)
         ELSE
-            !   Calculate the volume the simulation cell
+        !   Calculate the volume the simulation cell
             IF (DENSITYT) THEN
                 VLM = REAL(NPART,DP)/RHO
             ELSE IF (PACKINGT) THEN
@@ -378,12 +442,13 @@ SUBROUTINE READCONFIG
 
     CLOSE(UNIT = 33)
     CLOSE(UNIT = 34)
+    CLOSE(UNIT = 37)
 
 END SUBROUTINE READCONFIG
          
 SUBROUTINE SPHRCL_SEED()
 
-    USE COMMONS, ONLY: DP, NPART, NDIM, NUCSIZE, SEEDSIZE, RSEED, QSEED, SEEDRADIUS, R, Q, RIGIDT, BINARYT, SEEDID
+    USE COMMONS, ONLY: DP, NPART, NDIM, NUCSIZE, SEEDSIZE, RSEED, QSEED, SEEDRADIUS, R, Q, RIGIDT, BINARYT, SEEDID, RACEMICT
 
     IMPLICIT NONE
 
@@ -411,7 +476,7 @@ SUBROUTINE SPHRCL_SEED()
             
             ALLOCATE(RSEED(NDIM,SEEDSIZE))
             IF(RIGIDT) ALLOCATE(QSEED(4,SEEDSIZE))
-            IF(BINARYT) ALLOCATE(SEEDID(SEEDSIZE))
+            IF(BINARYT .OR. RACEMICT) ALLOCATE(SEEDID(SEEDSIZE))
             
             SEEDSIZE = 0
             
@@ -424,6 +489,12 @@ SUBROUTINE SPHRCL_SEED()
                     
                     IF(BINARYT) THEN
                         IF(MOD(J1,2)==0) THEN
+                            SEEDID(SEEDSIZE) = 0
+                        ELSE
+                            SEEDID(SEEDSIZE) = 1
+                        ENDIF
+                    ELSEIF(RACEMICT) THEN
+                        IF(MOD(((J1-1)-MOD((J1-1),12))/12+1,2)==0) THEN
                             SEEDID(SEEDSIZE) = 0
                         ELSE
                             SEEDID(SEEDSIZE) = 1
@@ -443,7 +514,7 @@ END SUBROUTINE
 SUBROUTINE ADD_SEED()
 
     USE COMMONS, ONLY: DP, CDP, NPART, NDIM, SEEDSIZE, R, Q, RSEED, QSEED, SEEDSIZE, SEEDRADIUS, RIGIDT
-    USE COMMONS, ONLY: BINARYT, SEEDID, BNRYRTIOT, BNRYA, BOX
+    USE COMMONS, ONLY: BINARYT, SEEDID, BNRYRTIOT, BNRYA, RACEMICT, BOX
     USE ROTATIONS_MODULE, ONLY: RANDOM_QUATERNION
 
     IMPLICIT NONE
@@ -460,10 +531,17 @@ SUBROUTINE ADD_SEED()
 
     NOVRLP  = 0
     DELPART = -1
-    DO J1 = 1, SEEDSIZE
-        DO J2 = 1, NPART
+    
+    DO J2 = 1, NPART
+        IF(NORM2(R(:,J2)) <= SEEDRADIUS) THEN
+            NOVRLP = NOVRLP + 1
+            DELPART(NOVRLP) = J2
+            CYCLE
+        ENDIF
+        DO J1 = 1, SEEDSIZE
             RDIF = RSEED(:,J1) - R(:,J2)
-            IF(NORM2(RDIF) < 1.0_dp .OR. NORM2(R(:,J2)) <= SEEDRADIUS) THEN
+            IF(NORM2(RDIF) < 1.0_dp) THEN
+                PRINT *, J2, R(:,J2)
                 IF(.NOT. ANY(DELPART == J2) ) THEN
                     NOVRLP = NOVRLP + 1
                     DELPART(NOVRLP) = J2
@@ -630,6 +708,52 @@ SUBROUTINE ADD_SEED()
             ENDIF
         ENDDO
 
+    ELSEIF(RACEMICT) THEN
+        NODD = SUM(SEEDID)
+        NEVN = SEEDSIZE-NODD
+        CEVN = 0
+        CODD = 0
+
+        DO J1 = 1, SEEDSIZE
+            IF(SEEDID(J1)==0) THEN
+                CEVN  = CEVN + 1
+                SHIFT = 12+CEVN
+                SHFTE = SHIFT
+                IF(MOD(CEVN,12)==0) CEVN = CEVN + 12
+            ELSE
+                CODD  = CODD + 1
+                SHIFT = MOD(((CODD-1)-MOD((CODD-1),12))/12+1,2)+CODD-1
+                SHFTO = SHIFT
+                IF(MOD(CODD,12)==0) CODD = CODD + 12
+            ENDIF
+            NEWR(:,SHIFT) = RSEED(:,J1)
+            IF(RIGIDT) NEWQ(:,SHIFT) = QSEED(:,J1)
+        ENDDO
+
+        COUNT = 0 
+
+        FLUIDL = 12-MOD(SHFTO,12)
+        FLUIDU = 12-MOD(SHFTE,12)
+        NFILL  = FLUIDL+FLUIDU
+
+        DO J1 = 1, NPART
+            IF(COUNT == NPART-SEEDSIZE) EXIT
+            IF(.NOT. ANY(DELPART(1:NOVRLP) == J1)) THEN
+                COUNT = COUNT + 1
+                IF(COUNT <= NFILL) THEN
+                    IF(COUNT<=FLUIDL)THEN
+                        SHIFT = SHFTO+COUNT
+                    ELSE
+                        SHIFT = SHFTE+COUNT-FLUIDL
+                    ENDIF
+                ELSE
+                    SHIFT = SHIFT+1
+                ENDIF
+                NEWR(:,SHIFT) = R(:,J1)
+                IF(RIGIDT) NEWQ(:,SHIFT) = Q(:,J1)
+            ENDIF
+        ENDDO
+
     ELSE
         DO J1 = 1, SEEDSIZE
             NEWR(:,J1) = RSEED(:,J1)
@@ -665,5 +789,27 @@ SUBROUTINE ADD_SEED()
             ENDIF
         ENDDO
     ENDIF
+
+    Do J1 = 1, NPART
+        Print *, "C", R(:,J1)
+    ENDDO
+    
+END SUBROUTINE
+
+SUBROUTINE ADD_RNDM()
+
+    USE COMMONS, ONLY: DP, CDP, NPART, NDIM, R, Q, BNRYA,  BOX
+
+    IMPLICIT NONE
+
+    INTEGER                      :: J1, J2
+    REAL(KIND=CDP)               :: DRAND48
+
+    DO J1 = BNRYA+1, NPART
+        DO J2 = 1, NDIM
+            R(J2,J1) = (2.0_dp*DRAND48()-1.0_dp)*(0.5_dp*BOX(J2))
+        ENDDO
+        Q(:,J1) = [1.0_dp,0.0_dp,0.0_dp,0.0_dp]
+    ENDDO
     
 END SUBROUTINE

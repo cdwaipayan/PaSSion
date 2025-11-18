@@ -6,7 +6,8 @@
 
         USE COMMONS, ONLY: DP, NDIM, NPART, R, Q, RBSITES, PE, RIGIDT, BETAKB, PRES, RHO, VIR, VLM, NSITES
         USE COMMONS, ONLY: BOX, CELLLISTT, TRGTSEED, CLSTRSIZE, NPINK, SCALED_R, RCUT
-        USE COMMONS, ONLY: SUMLRGSTXCLSTRBLK, NUCCOUNT, TOTNUCCOUNT, NUCSEEDT
+        USE COMMONS, ONLY: SUMLRGSTXCLSTRBLK, NUCCOUNT, TOTNUCCOUNT, NUCSEEDT, NUCCNTT, CRITNC, NSEEDMAX
+        USE COMMONS, ONLY: GQL, TRGTQ, QPINK
         USE CELL_LIST
         USE ORDERPARAM, ONLY: GET_BOPS, LRGSTXCLSTR
 
@@ -15,8 +16,10 @@
         INTEGER, INTENT(IN)                 :: ISTEP
 
         INTEGER                             :: J1, NXTLNEW
-        REAL(KIND=DP)                       :: BIASNEW, DELB
+        REAL(KIND=DP)                       :: BIASNEW, DELB, QLNEW, N1, N2
         REAL(KIND=DP)                       :: DRAND48
+
+        LOGICAL                             :: REJECTT
 
         INTEGER, SAVE                       :: NXTLOLD
         REAL(KIND=DP), SAVE                 :: ENEOLD, VLMOLD, VIROLD, PRESOLD, RHOOLD, BIASOLD
@@ -27,6 +30,8 @@
         IF(.NOT. ALLOCATED(QOLD) .AND. RIGIDT) ALLOCATE(QOLD(4,NPART))
         IF(.NOT. ALLOCATED(RBOLD) .AND. RIGIDT) ALLOCATE(RBOLD(NDIM,NSITES,NPART))
         IF(.NOT. ALLOCATED(SUMBOLD)) ALLOCATE(SUMBOLD(NDIM))
+
+        REJECTT = .FALSE.
 
 !   ========================================================================================================
 !   Compute and save system observables at the beginning of the simulation. This is done in initialise.f90. 
@@ -51,7 +56,15 @@
             IF(NUCSEEDT) THEN
                 CALL LRGSTXCLSTR(.TRUE., NXTLOLD)
                 CLSTRSIZE = NXTLOLD
-                BIASOLD   = NPINK * REAL((NXTLOLD - TRGTSEED),DP)**2
+                IF(NUCCNTT) THEN
+                    N1 = REAL(NXTLOLD)**(2.0_dp/3.0_dp)
+                    N2 = REAL(NXTLOLD)**(1.0_dp/3.0_dp)
+                    BIASOLD = NPINK*N1*(N2-CRITNC)
+                ELSE
+                    BIASOLD = NPINK * REAL((NXTLOLD - TRGTSEED),DP)**2
+                ENDIF
+            ELSE
+                BIASOLD = QPINK *(GQL(1) - TRGTQ)**2
             ENDIF
             
             RETURN
@@ -63,17 +76,31 @@
         CALL GET_BOPS()
         IF(NUCSEEDT) THEN
             CALL LRGSTXCLSTR(.FALSE., NXTLNEW)
-        !   Calculate the new value for the harmonic bias potential, which we take to be:
-        !   phi = k*(NXT_max - NXT_0)**2.
-            BIASNEW = NPINK * REAL((NXTLNEW - TRGTSEED),DP)**2
+            IF(NUCCNTT) THEN
+                IF(NXTLNEW>NSEEDMAX) THEN
+                    REJECTT = .TRUE.
+                ELSE
+                    N1 = REAL(NXTLNEW)**(2.0_dp/3.0_dp)
+                    N2 = REAL(NXTLNEW)**(1.0_dp/3.0_dp)
+                    BIASNEW = NPINK*N1*(N2-CRITNC)
+                ENDIF
+            ELSE
+            !   Calculate the new value for the harmonic bias potential, which we take to be:
+            !   phi = k*(NXT_max - NXT_0)**2.
+                BIASNEW = NPINK * REAL((NXTLNEW - TRGTSEED),DP)**2
+            ENDIF
+        ELSE
+            QLNEW   = GQL(1)
+            BIASNEW = QPINK *(QLNEW - TRGTQ)**2
         ENDIF
+    
     !   Calculate the change in the bias potential
-        DELB = BIASNEW - BIASOLD
+        IF (.NOT. REJECTT) DELB = BIASNEW - BIASOLD
 
 !   ====================================================================================
 !       Metropolis acceptence criteria
 !   ====================================================================================
-        IF ( DRAND48() > EXP(-BETAKB*DELB) .AND. NPINK > 0.0_dp ) THEN
+        IF ( REJECTT .OR. (DRAND48()>EXP(-BETAKB*DELB).AND.(NPINK>0.0_dp.OR.QPINK>0.0_dp)) ) THEN
         !   Reject the move, and reset system parameters.
             PE   = ENEOLD
             VLM  = VLMOLD
@@ -205,4 +232,44 @@
         ELSE
             Q = EXP(-i*DOT_PRODUCT(K,R(:,INDXP)))
         ENDIF
+    END SUBROUTINE
+
+
+    SUBROUTINE INITIALISE_HISTOGRAM()
+
+        USE COMMONS,   ONLY: DP, NBINS, BIN_MIN, BIN_MAX, BINEDGES, HISTCOUNTS
+        IMPLICIT NONE
+
+        INTEGER :: J1
+
+        ALLOCATE(BINEDGES(0:NBINS), HISTCOUNTS(0:NBINS))
+
+        BINEDGES   = 0.0_dp
+        HISTCOUNTS = 0
+
+        DO J1 = 0, NBINS
+            BINEDGES(J1) = BIN_MIN + REAL(J1,DP) * (BIN_MAX-BIN_MIN)/REAL(NBINS,DP)
+        ENDDO
+
+    END SUBROUTINE
+
+    SUBROUTINE UPDATE_HISTOGRAM(X)
+
+        USE COMMONS,   ONLY: DP, NBINS, BIN_MIN, BIN_MAX, HISTCOUNTS
+
+        IMPLICIT NONE
+
+        REAL(KIND=DP), INTENT(IN) :: X
+        INTEGER                   :: H_LOC
+
+        H_LOC = FLOOR( (X-BIN_MIN) / (BIN_MAX-BIN_MIN) * REAL(NBINS,DP) )
+
+        IF(H_LOC>NBINS) THEN
+            H_LOC = NBINS
+        ELSEIF(H_LOC<0) THEN
+            H_LOC = 0
+        ENDIF
+
+        HISTCOUNTS(H_LOC) = HISTCOUNTS(H_LOC) + 1
+
     END SUBROUTINE

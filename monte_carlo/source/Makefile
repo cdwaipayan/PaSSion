@@ -3,9 +3,10 @@ GPROG =	$(BIN)/FULL_MONTE
 
 OBJS1 = commons.o
 OBJS2 =	accumul.o initialise.o keywords.o main.o move.o move_mc.o umbrella.o readinput.o \
-        output.o potential.o orderparam.o free_energy_mc.o viewconfig.o \
-        cluster_move.o cell_list.o rotations_module.o stack.o unitcells.o glj.o \
-		kihara.o pglj.o kf.o cpp.o etp.o dmbl_glj.o hdmbl.o dipolar_discs.o
+        output.o potential.o orderparam.o free_energy_mc.o viewconfig.o cluster_move.o \
+        cell_list.o rotations_module.o stack.o unitcells.o glj.o multi_spheres.o kihara.o \
+		pglj.o kf.o cpp.o etp.o dmbl_glj.o kf_rec.o hdmbl.o nematic_colloids.o foreign_object.o \
+		polymer_move.o patchy_disk.o patchy_triangle.o
 
 OBJS = ${OBJS1} ${OBJS2}
 LDFLAGS = -L.
@@ -16,7 +17,8 @@ CPFLAGS = -traditional -P
 
 ###################################### COMPILERS AND COMPILER FLAGS ######################################
 FC = gfortran
-FFLAGS= -ffixed-line-length-132 -g -fbounds-check -Wuninitialized -O -fimplicit-none -fno-automatic -fallow-argument-mismatch
+FFLAGS= -ffixed-line-length-132 -g -fbounds-check -Wuninitialized -O -fimplicit-none -fno-automatic 
+# -fallow-argument-mismatch
 SWITCH=gfortran
 LIBS  = drand48.c
 
@@ -53,21 +55,28 @@ keywords.o:       	commons.o
 main.o:           	commons.o
 move.o:           	commons.o free_energy_mc.o
 move_mc.o:        	commons.o orderparam.o cell_list.o rotations_module.o cluster_move.o
-cluster_move.o:		commons.o cell_list.o rotations_module.o
+cluster_move.o:		commons.o cell_list.o rotations_module.o stack.o
+polymer_move.o:		commons.o cell_list.o rotations_module.o
 umbrella.o:			commons.o orderparam.o cell_list.o
 output.o:         	commons.o 
 potential.o:      	commons.o
 free_energy_mc.o: 	commons.o cell_list.o rotations_module.o cluster_move.o
 readinput.o:      	commons.o
 glj.o:            	commons.o
+multi_spheres.o:    commons.o
 kihara.o:			commons.o rotations_module.o
 kf.o:				commons.o rotations_module.o
 pglj.o:				commons.o rotations_module.o
 cpp.o:				commons.o rotations_module.o
 etp.o:				commons.o rotations_module.o
 dmbl_glj.o:	  		commons.o rotations_module.o
+kf_rec.o:	  		commons.o rotations_module.o
 hdmbl.o:           	commons.o
-dipolar_discs.o:    commons.o rotations_module.o
+nematic_colloids.o: commons.o
+#capsomer.o:			commons.o
+patchy_disk.o:		commons.o rotations_module.o
+patchy_triangle.o:  commons.o rotations_module.o
+foreign_object.o:   commons.o
 orderparam.o:     	commons.o cell_list.o stack.o cluster_move.o
 viewconfig.o:     	commons.o
 cell_list.o:

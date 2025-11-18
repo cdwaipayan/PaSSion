@@ -7,54 +7,31 @@ SUBROUTINE OUTPUT()
     INTEGER            :: J1, J2, NSTART, LRGST_X_CLSTR
     character(len=100) :: fmt1, snbop
 
-    IF (.NOT. SEGREGATET) THEN
-        OPEN (UNIT = 3, FILE ='data.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-        !   Current Monte Carlo cycle/step 
-            WRITE (3,*) "STEP: ", ISTEP
-        !   Instantaneous energy
-            WRITE (3,*) "ENERGY: ", PE
-        !   Instantaneous pressure (only valid for continuous models)       
-            WRITE (3,*) "PRESSURE: ", PRES
-            IF(NPTT) THEN
-            !   Instantaneous density      
-                WRITE (3,*) "DENSITY: ", RHO
-            !   Instantaneous volume  
-                WRITE (3,*) "VOLUME: ", VLM
-            !   Collective density field
-                IF(NPZTT .OR. PINT) WRITE (3,*) "COLL_DENS: ", TRQ
-            ENDIF
-        CLOSE (UNIT = 3, STATUS = 'KEEP')
-
-    ELSE !PRINT SEPERATE FILES
-        OPEN (UNIT = 54, FILE ='energy.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-        !   Current Monte Carlo cycle/step & instantaneous energy
-            WRITE (54,*) ISTEP, PE
-        CLOSE (UNIT = 54, STATUS = 'KEEP')
-
-        OPEN (UNIT = 55, FILE ='pressure.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-        !   Instantaneous pressure (only valid for continuous models)       
-            WRITE (55,*) ISTEP, PRES
-        CLOSE (UNIT = 55, STATUS = 'KEEP')
-
-        IF(NPTT) THEN
-            OPEN (UNIT = 56, FILE ='density.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-            !   Instantaneous density      
-                WRITE (56,*) ISTEP, RHO
-            CLOSE (UNIT = 56, STATUS = 'KEEP')
-
-            OPEN (UNIT = 57, FILE ='volume.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-            !   Instantaneous volume  
-                WRITE (57,*) ISTEP, VLM
-            CLOSE (UNIT = 57, STATUS = 'KEEP')
-
-            IF(NPZTT .OR. PINT) THEN
-                OPEN (UNIT = 58, FILE ='coll_dens.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-                !   Collective density field
-                    WRITE (58,*) TRQ
-                CLOSE (UNIT = 58, STATUS = 'KEEP')
-            ENDIF
+    OPEN (UNIT = 3, FILE ='data.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+    !   Current Monte Carlo cycle/step 
+        WRITE (3,*) "STEP: ", ISTEP
+    !   Instantaneous energy
+        WRITE (3,*) "ENERGY: ", PE
+    !   Instantaneous pressure (only valid for continuous models)       
+        WRITE (3,*) "PRESSURE: ", PRES
+    !   Pressure calculated using the stress tensor
+        IF(STRESST) THEN
+            STRESS = VIR_TENS
+            DO J1 = 1,NDIM
+                STRESS(J1,J1) = REAL(NPART,DP)/BETAKB + STRESS(J1,J1)
+            ENDDO
+            STRESS = -STRESS / VLM
+            WRITE (3,*) "STRESS: ", -(STRESS(1,1)+STRESS(2,2)+STRESS(3,3))/3.0_dp
         ENDIF
-    ENDIF
+        IF(NPTT) THEN
+        !   Instantaneous density      
+            WRITE (3,*) "DENSITY: ", RHO
+        !   Instantaneous volume  
+            WRITE (3,*) "VOLUME: ", VLM
+        !   Collective density field
+            IF(NPZTT .OR. PINT) WRITE (3,*) "COLL_DENS: ", TRQ
+        ENDIF
+    CLOSE (UNIT = 3, STATUS = 'KEEP')
 
     IF(BOPT) THEN
         WRITE(fmt1,'(I6)') (MAX_L-MIN_L)/DEL_L+1
@@ -132,7 +109,22 @@ SUBROUTINE OUTPUT()
             ENDIF
 
         ENDIF
+    ENDIF
 
+    IF(RADIUSGYRT .AND. POLYCHAINT) THEN
+        CALL GET_RADIUS_OF_GYRATIONS(RGYR)
+        OPEN (UNIT = 28407, FILE ='rg.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        WRITE (28407,*) RGYR
+        CLOSE (UNIT = 28407, STATUS = 'KEEP')
+    ENDIF
+
+    IF(ONEDHISTT) THEN
+        OPEN (UNIT = 3432, FILE ='hist.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        WRITE (3432,*) "BLOCK: ", IBLOCK, ISTEP
+        DO J1 = 0, NBINS
+            WRITE(3432,*) BINEDGES(J1), HISTCOUNTS(J1)
+        ENDDO
+        CLOSE (UNIT = 3432, STATUS = 'KEEP')
     ENDIF
 
     NSTART = NEQ
@@ -141,7 +133,7 @@ SUBROUTINE OUTPUT()
 
         OPEN (UNIT = 7,  FILE = 'pos.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
         DO J1 = 1, NPART
-            WRITE (7,'(3F12.7)') R(:,J1)
+            WRITE (7,'(3F14.7)') R(:,J1)
         ENDDO
         CLOSE (UNIT = 7, STATUS = 'KEEP')
 
@@ -155,7 +147,7 @@ SUBROUTINE OUTPUT()
 
         IF(NPTT) THEN
             OPEN (UNIT = 19, FILE = 'box.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
-            WRITE (19,'(3F12.7)') BOX
+            WRITE (19,'(3F14.7)') BOX
             CLOSE (UNIT = 19, STATUS = 'KEEP')
         ENDIF
 
@@ -185,14 +177,26 @@ SUBROUTINE OUTPUT()
         ENDIF
         CLOSE (UNIT = 38, STATUS = 'KEEP')
 
+        OPEN (UNIT = 43, FILE = 'finalrun.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+        IF(RIGIDT) THEN
+            WRITE (43,*) MAXDTR, MAXDRT
+            IF(CLUSTERMOVET) WRITE (43,*) MAXDTRC, MAXDRTC
+        ELSE
+            WRITE (43,*) MAXDTR
+        ENDIF
+        IF(POLYCHAINT) WRITE(43,*) MAXDPTR, MAXDPRT, MAXDPRATT
+
         IF(NPTT) THEN
             OPEN (UNIT = 39, FILE = 'finalbox.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
             OPEN (UNIT = 40, FILE = 'finaldns.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
             WRITE (39,*) BOX
             WRITE (40,*) RHO
+            WRITE (43,*) MAXBOX
             CLOSE (UNIT = 39, STATUS = 'KEEP')
             CLOSE (UNIT = 40, STATUS = 'KEEP')
         ENDIF
+
+        CLOSE (UNIT = 43, STATUS = 'KEEP')
 
     !----------------------------------------------------------------------------------
     !----------------------------------------------------------------------------------
@@ -256,6 +260,8 @@ SUBROUTINE OUTPUT()
                 WRITE (41,*) SUM_U_SS, STD_U_SS_SUM
             ENDIF
         ENDIF
+
+        IF(STRESST) WRITE(41,*) TOT_STRAIN
 
     !   Output xyz file to visualise the final configuration
         CALL VIEWCONFIG('finalconfig.xyz')
@@ -432,6 +438,26 @@ SUBROUTINE SUMMARY_START()
                 WRITE(fmt2,'(F20.12)') KFLAMD
                 string = '  + Patch D has a range of: '//trim(adjustl(fmt2))
                 write(1771,*) string
+            ELSEIF(J1 == 5) THEN
+                WRITE(fmt2,'(F20.12)') KFDELE
+                string = '  + Patch E has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFEE
+                string = '  + Patch E has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAME
+                string = '  + Patch E has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ELSEIF(J1 == 6) THEN
+                WRITE(fmt2,'(F20.12)') KFDELF
+                string = '  + Patch F has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFFF
+                string = '  + Patch F has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAMF
+                string = '  + Patch F has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
             ENDIF
         ENDDO
 
@@ -506,6 +532,85 @@ SUBROUTINE SUMMARY_START()
 
             ENDIF
         ENDDO
+
+    ELSEIF (PATCHYOBLT) THEN
+        write(1771,*) 'Simulating patchy oblate spherocylinder particles'
+        DO J1 = 1, NSITES
+            IF(J1 == 1) THEN
+                WRITE(fmt2,'(F20.12)') KFDELA
+                string = '  + Patch A has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFAA
+                string = '  + Patch A has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAMA
+                string = '  + Patch A has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ELSEIF(J1 == 2) THEN
+                WRITE(fmt2,'(F20.12)') KFDELB
+                string = '  + Patch B has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFBB
+                string = '  + Patch B has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAMB
+                string = '  + Patch B has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ELSEIF(J1 == 3) THEN
+                WRITE(fmt2,'(F20.12)') KFDELC
+                string = '  + Patch C has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFCC
+                string = '  + Patch C has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAMC
+                string = '  + Patch C has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ELSEIF(J1 == 4) THEN
+                WRITE(fmt2,'(F20.12)') KFDELD
+                string = '  + Patch D has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFDD
+                string = '  + Patch D has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAMD
+                string = '  + Patch D has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ELSEIF(J1 == 5) THEN
+                WRITE(fmt2,'(F20.12)') KFDELE
+                string = '  + Patch E has a width of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFEE
+                string = '  + Patch E has a well-depth of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+                WRITE(fmt2,'(F20.12)') KFLAME
+                string = '  + Patch E has a range of: '//trim(adjustl(fmt2))
+                write(1771,*) string
+            ENDIF
+        ENDDO
+
+        IF(POLYCHAINT) THEN
+            WRITE(fmt1,'(I8)') N_POLY
+            WRITE(fmt2,'(I8)') N_POLY_L
+            string = 'Simulating '//trim(adjustl(fmt1))//' polymer chains of length '//trim(adjustl(fmt2))
+            write(1771,*) string
+            WRITE(fmt2,'(F20.12)') POLY_SIG
+            string = '  + Beads have a diameter of '//trim(adjustl(fmt2))
+            write(1771,*) string
+            WRITE(fmt2,'(F20.12)') POLY_KAP
+            string = '  + Beads connected by harmonic spring of strength '//trim(adjustl(fmt2))
+            write(1771,*) string
+            WRITE(fmt2,'(F20.12)') POLYC_L*POLY_SIG
+            string = '  + Equilibrium bond length between beads is '//trim(adjustl(fmt2))
+            write(1771,*) string
+            WRITE(fmt2,'(F20.12)') CP_EPS
+            string = '  + Polymer-Capsomer well-depth: '//trim(adjustl(fmt2))
+            write(1771,*) string
+            WRITE(fmt2,'(F20.12)') CP_DEL
+            string = '  + Polymer-Capsomer range: '//trim(adjustl(fmt2))
+            write(1771,*) string
+        ENDIF
+        
     ENDIF
 
     WRITE(fmt1,'(F20.12)') PE
@@ -529,6 +634,29 @@ SUBROUTINE SUMMARY_START()
     WRITE(fmt3,'(F20.12)') BOX(3)
     string = 'Initial box lengths: '//trim(adjustl(fmt1))//' '//trim(adjustl(fmt2))//' '//trim(adjustl(fmt3))
     write(1771,*) string
+
+    IF(RIGIDT) THEN
+        WRITE(fmt1,'(F12.7)') MAXDTR
+        WRITE(fmt2,'(F12.7)') MAXDRT
+        string = 'Using initial single-particle step-sizes of: '//trim(adjustl(fmt1))//' '//trim(adjustl(fmt2))
+        write(1771,*) string
+        IF(CLUSTERMOVET) THEN
+            WRITE(fmt1,'(F12.7)') MAXDTRC
+            WRITE(fmt2,'(F12.7)') MAXDRTC
+            string = 'Using initial cluster move step-sizes of: '//trim(adjustl(fmt1))//' '//trim(adjustl(fmt2))
+            write(1771,*) string
+        ENDIF
+    ELSE
+        WRITE(fmt1,'(F12.7)') MAXDTR
+        string = 'Using initial single-particle step-sizes of: '//trim(adjustl(fmt1))
+        write(1771,*) string
+    ENDIF
+
+    IF(NPTT) THEN
+        WRITE(fmt1,'(F12.7)') MAXBOX
+        string = 'Using initial volume step-sizes of: '//trim(adjustl(fmt1))
+        write(1771,*) string
+    ENDIF
 
     IF(LRGSTXCLSTRT) THEN
         WRITE(fmt1,'(I9)') BOP_L
@@ -597,10 +725,36 @@ SUBROUTINE SUMMARY_END()
     write(1771,*) string
     
     CALL CPU_TIME(FINISH_TIME)
-    WRITE(fmt1,'(F20.12)') ((FINISH_TIME - START_TIME)/60.0) / 60.0
+    WRITE(fmt1,'(F20.12)') ((FINISH_TIME - START_TIME)/60.0) / 24.0
     string = 'Total run time was '//trim(adjustl(fmt1))//' hours'
     write(1771,*) string
 
     WRITE (1771,*) "**********************************************************************************"
+
+END SUBROUTINE
+
+SUBROUTINE PRINT_CONFLINK()
+    
+    USE COMMONS, ONLY: DP, NDIM, BOX, NCLSTRS, CLSTRCOM, CLSTR_NEIGHS, CLSTR_NEIGH_CNT, BOPCLSTRT, PATCHBST, CLSTRSZS
+    USE CLUSTER_MOVE, ONLY: GET_CLSTR_NEIGHBOURS
+
+    IMPLICIT NONE
+    INTEGER            :: J1, J2, NEICOUNT
+
+    OPEN (UNIT = 42, FILE = 'conflink.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+    
+    CALL GET_CLSTR_NEIGHBOURS()
+
+    WRITE (42,'(I4,A2,F12.8)') NCLSTRS, ",", BOX(1)
+
+    DO J1 = 1, NCLSTRS
+        WRITE (42,'(9999(F8.4,a),F8.4)') (CLSTRCOM(J2,J1), ", ",J2=1,NDIM-1), CLSTRCOM(NDIM,J1)
+    ENDDO
+
+    DO J1 = 1, NCLSTRS
+        NEICOUNT = CLSTR_NEIGH_CNT(J1)
+        WRITE (42,'(I4,A2,I2,A2,I2)') J1, ",", NEICOUNT, ",", CLSTRSZS(J1)
+        WRITE (42, "(*(G0,:,', '))") CLSTR_NEIGHS(1:NEICOUNT,J1)
+    ENDDO
 
 END SUBROUTINE

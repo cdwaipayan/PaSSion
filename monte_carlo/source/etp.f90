@@ -310,7 +310,7 @@ SUBROUTINE ETP(ENERGY, RIJ, RIJSQ, J1, J2)
     
         USE COMMONS, ONLY: DP, NPART, NSITES, REFSITE, CPPDELA, CPPDELB, PI, CPPIJ, CPPDEL, RCUT, RCUTSQ, &
         CPPAA, CPPBB, CPPMDEL, CPPS, CPPINVS, PIS, DCHECKSQ, GLJN, ETPCUTSQ, RLNGTH, HLFLNGTH, POLYDT, POLYSTD, ETPDEL, ETPMDEL, &
-        READPOLYT
+        READPOLYT, HTPRT, CPPLAM
 
         USE ROTATIONS_MODULE, ONLY: BOX_MULLER
     
@@ -350,14 +350,19 @@ SUBROUTINE ETP(ENERGY, RIJ, RIJSQ, J1, J2)
             CPPDEL(1)    = COS(CPPDELA*PI/180.0_dp)
             CPPMDEL(1)   = PI / ( 1.0_dp - CPPDEL(1) )
         ENDIF
-    
-    !   The cut-off for the repulsive Kihara component of the potential 
-        DCHECKSQ = 2.0_dp**(2.0_dp/GLJN)
-    !   Define a cut-off for the shortest distance between the particles
-        ETPCUTSQ = RCUTSQ
-    !   Adjust the cut-off from the input to account for the fact that the particles
-    !   have an elongated core.
-        RCUT     = RCUT + RLNGTH
+        
+        IF(HTPRT) THEN
+            RCUT = 1.0_dp + RLNGTH + 2.0_dp*(CPPLAM-1.0_dp)
+        ELSE
+        !   The cut-off for the repulsive Kihara component of the potential 
+            DCHECKSQ = 2.0_dp**(2.0_dp/GLJN)
+        !   Define a cut-off for the shortest distance between the particles
+            ETPCUTSQ = RCUTSQ
+        !   Adjust the cut-off from the input to account for the fact that the particles
+        !   have an elongated core.
+            RCUT     = RCUT + RLNGTH
+        ENDIF
+
         RCUTSQ   = RCUT * RCUT
     !   The half-length of the ETP particles 
         HLFLNGTH = RLNGTH / 2.0_dp

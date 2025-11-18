@@ -4,7 +4,7 @@
 !     See "Designing a Bernal Spiral from Patchy Colloids", ACS Nano, 7, 1246-1256 (2013) for the
 !     patch-patch interactions.
 !     ==============================================================================================
-        USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES, VIRTEMP
+        USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES, VIRTEMP, STRESST, STRESSTEMP
         USE COMMONS, ONLY: YUKKAP, CPPDEL, CPPMDEL, CPPIJ, CPPLAM, CPPINVS, PIS, DNAT, BINARYT, HLFPART
         USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRSZ, CLSTRID, CLSTRADJ, VLMCLUSTERMOVET, CLURIJ, CLSTRSITEID
     
@@ -14,7 +14,7 @@
         REAL(KIND=DP), INTENT(IN) :: RIJ(NDIM), RIJSQ
 
     !   Counters for the loops   
-        INTEGER       :: J3, J4
+        INTEGER       :: J3, J4, J5, J6
     !   Parameters related to the translational coordinates of the particles         
         REAL(KIND=DP) :: RHAT(NDIM), DIST
     !   Parameters related to the orientational coordinates of the particles        
@@ -22,7 +22,7 @@
     !   Parameters specific to potential energy function 
         REAL(KIND=DP) :: UYUK, DLAM, WPP, PHII, PHIJ,  UPP
     !   Parameters related to calculating the virial pressure
-        REAL(KIND=DP) :: DWPDR, FPIPJ, DPHIJDR, DPHIIDR
+        REAL(KIND=DP) :: DWPDR, FPIPJ, DPHIJDR, DPHIIDR, GRAD
 
     !   PARAMETER TO BE OUTPUT FROM SUBROUTINE
         REAL(KIND=DP), INTENT(OUT) :: ENERGY
@@ -33,7 +33,15 @@
     !   Calculate repulsive contribution to the pair energy
         UYUK    = EXP( -YUKKAP*(DIST - 1.0_dp) )
         ENERGY  = ENERGY + UYUK / DIST
-        VIRTEMP = VIRTEMP + UYUK*(YUKKAP + 1.0_dp/DIST)
+        VIRTEMP = VIRTEMP + UYUK*(YUKKAP + 1.0_dp/DIST)*DIST
+
+        IF(STRESST) THEN
+            DO J5 = 1, NDIM
+                DO J6 = 1, NDIM
+                    STRESSTEMP(J5,J6) = STRESSTEMP(J5,J6) + (UYUK*(YUKKAP + 1.0_dp/DIST)*( RIJ(J5)*RIJ(J6)/DIST ))
+                ENDDO
+            ENDDO
+        ENDIF
 
         !   If considering a binary system then the 1st and 2nd halves of the particle list do not iteract with one another.
         IF(BINARYT) THEN
@@ -78,9 +86,6 @@
                         IF(J3 /= J4) CYCLE
                     ENDIF
 
-                    UPP   = 0.0_dp
-                    FPIPJ = 0.0_dp
-
                 !   Direction of patch beta on particle J
                     EB     = RBSITES(:,J4,J2)
                 !   Angle between the direction of patch beta and the inter-particle distance vector
@@ -93,11 +98,23 @@
                         DPHIJDR = -(1.0_dp/RIJSQ)*(CPPMDEL(J4)*EBRJI)*SIN((1.0_dp/DIST)*CPPMDEL(J4)*(EBRJI-CPPDEL(J4)))
                     ENDIF
 
-                    UPP   = UPP + CPPIJ(J3,J4) * PHII * PHIJ
-                    FPIPJ = FPIPJ + CPPIJ(J3,J4)*(PHIJ*WPP*DPHIIDR + PHII*WPP*DPHIJDR + PHII*PHIJ*DWPDR)
+                    UPP   = CPPIJ(J3,J4) * PHII * PHIJ
+                    FPIPJ = CPPIJ(J3,J4)*(PHIJ*WPP*DPHIIDR + PHII*WPP*DPHIJDR + PHII*PHIJ*DWPDR)
 
                     ENERGY  = ENERGY + 0.25_dp * UPP * WPP
-                    VIRTEMP = VIRTEMP - 0.25_dp*DIST*FPIPJ
+                !   Compute virial pressure and stress tensor.
+                !   Stress tensor is computed using Eqn 8. from https://www.tandfonline.com/doi/abs/10.1080/08927022.2017.1313418
+                    GRAD    = 0.25_dp*FPIPJ
+                    VIRTEMP = VIRTEMP - GRAD*DIST
+                    
+                    ! PRINT *, DIST, RIJ
+                    IF(STRESST) THEN
+                        DO J5 = 1, NDIM
+                            DO J6 = 1, NDIM
+                                STRESSTEMP(J5,J6) = STRESSTEMP(J5,J6) - GRAD*( RIJ(J5)*RIJ(J6)/DIST )
+                            ENDDO
+                        ENDDO
+                    ENDIF
 
                 !   If performing MC with cluster-moves, add particle J to the current 
                 !   cluster (if it is not already in the cluster). 
@@ -155,7 +172,7 @@
         CPPINVS    = 1.0_dp / CPPS
         PIS        = PI * CPPS
 
-        CPPAA      = 1.0_dp
+        ! CPPAA      = 1.0_dp
         CPPIJ(1,1) = CPPAA
         CPPIJ(1,2) = SQRT(CPPAA*CPPBB)
         CPPIJ(2,1) = CPPIJ(1,2)
@@ -232,16 +249,22 @@
     
     SUBROUTINE VIEW_CPP()
     
-        USE COMMONS, ONLY: DP, NPART, R, Q, REFSITE, NSITES, BOX, VIEWUNIT, BINARYT, HLFPART
+        USE COMMONS, ONLY: DP, NPART, R, Q, REFSITE, NSITES, BOX, VIEWUNIT, BINARYT, HLFPART, BYUKWAT, BNRYA
         USE ROTATIONS_MODULE, ONLY: Q_TO_RM
     
         IMPLICIT NONE
     
         INTEGER:: J1, J2
         REAL(KIND=DP) :: RWRITE(3,NPART), RM(3,3), RBCOORDS(3)
-    
-        WRITE(VIEWUNIT,*) NPART*(NSITES+1)
-        WRITE(VIEWUNIT,*)
+        LOGICAL       :: PTCHYT
+        
+        IF(BYUKWAT) THEN
+            WRITE(VIEWUNIT,*) BNRYA*(NSITES+1) + (NPART-BNRYA)
+            WRITE(VIEWUNIT,*)
+        ELSE
+            WRITE(VIEWUNIT,*) NPART*(NSITES+1)
+            WRITE(VIEWUNIT,*)
+        ENDIF
     
         RWRITE(:,:) = R(:,:)
         
@@ -250,25 +273,39 @@
         END DO
     
         DO J1 = 1, NPART
-            IF(BINARYT .AND. (J1 >= HLFPART)) THEN
-                WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Co ', RWRITE(1,J1), RWRITE(2,J1), RWRITE(3,J1)
-            ELSE
-                WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Au ', RWRITE(1,J1), RWRITE(2,J1), RWRITE(3,J1)
-            ENDIF
-            
-            RM = Q_TO_RM( Q(:,J1) )
-            DO J2 = 1, NSITES
-                RBCOORDS = RWRITE(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
-                IF(J2==1)THEN
-                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'N ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
-                ELSEIF(J2==2) THEN
-                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'O ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
-                ELSEIF(J2==3) THEN
-                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'K ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+            IF(BYUKWAT) THEN
+                IF(J1<=BNRYA) THEN
+                    PTCHYT = .TRUE.
                 ELSE
-                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Ni ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    PTCHYT = .FALSE.
                 ENDIF
-            ENDDO
+            ELSE
+                PTCHYT = .TRUE.
+            ENDIF
+
+            IF(PTCHYT) THEN
+                IF(BINARYT .AND. (J1 >= HLFPART)) THEN
+                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Co ', RWRITE(1,J1), RWRITE(2,J1), RWRITE(3,J1)
+                ELSE
+                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Au ', RWRITE(1,J1), RWRITE(2,J1), RWRITE(3,J1)
+                ENDIF
+                
+                RM = Q_TO_RM( Q(:,J1) )
+                DO J2 = 1, NSITES
+                    RBCOORDS = RWRITE(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
+                    IF(J2==1)THEN
+                        WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'N ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    ELSEIF(J2==2) THEN
+                        WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'O ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    ELSEIF(J2==3) THEN
+                        WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'K ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    ELSE
+                        WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Ni ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                    ENDIF
+                ENDDO
+            ELSE
+                WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'C ', RWRITE(1,J1), RWRITE(2,J1), RWRITE(3,J1)
+            ENDIF
         END DO
         
     END SUBROUTINE

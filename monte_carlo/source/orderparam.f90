@@ -6,7 +6,7 @@ MODULE ORDERPARAM
     IMPLICIT NONE
     PRIVATE
 
-    PUBLIC :: GET_BOPS, LRGSTXCLSTR
+    PUBLIC :: GET_BOPS, LRGSTXCLSTR, GET_RADIUS_OF_GYRATIONS
 
 CONTAINS
 
@@ -52,7 +52,7 @@ CONTAINS
     !   Calculate the largest crystalline cluster. 
     !   ==================================================================
 
-        USE COMMONS, ONLY: QBARLT, QLDOTQLT, QBARL, QLDOTQL
+        USE COMMONS, ONLY: QBARLT, QLDOTQLT, QBARL, QLDOTQL, ISTEP, POSDMP
         USE COMMONS, ONLY: L_INDEX, QLMIN, QLMAX, QLMIN_2, QLMAX_2, TWOLIMS, QLDIST, BOP_CUT
         USE COMMONS, ONLY: XSTL_NN_MIN, XSTL_NN_MAX, XSTL_NN_MIN_1, XSTL_NN_MAX_1, XSTL_NN_MIN_2, XSTL_NN_MAX_2
     
@@ -257,7 +257,7 @@ CONTAINS
         ENDDO
     !   ====================================================================================================
 
-        IF(OUTPUTT) CALL VIEW_LRGSTXCLSTR(CLSTR,LRGST_X_CLSTR,LRGST_X_ID)
+        IF(OUTPUTT .AND. MOD(ISTEP,POSDMP)==0) CALL VIEW_LRGSTXCLSTR(CLSTR,LRGST_X_CLSTR,LRGST_X_ID)
         
     END SUBROUTINE LRGSTXCLSTR
 
@@ -269,6 +269,7 @@ CONTAINS
 !       ==================================================================
 
         USE COMMONS, ONLY: R, NSITES, HLFLNGTH, Q, REFSITE, RIGIDT, ETPT, BOPCLSTRT, CLSTRCOM, PCLSTRID, BINARYT, BNRYRTIOT, BNRYA
+        USE COMMONS, ONLY: KFRECT, TANA, TANB, RBSITES
         USE ROTATIONS_MODULE, ONLY: Q_TO_RM
 
         INTEGER, INTENT(IN)         :: CLSTR(NPBOP), LRGST_X_CLSTR, LRGST_X_ID
@@ -350,15 +351,24 @@ CONTAINS
                 ENDIF
             !   Add rigid body sites to particles
                 IF(RIGIDT) THEN
-                    DO J2 = 1, NSITES
-                        RM = Q_TO_RM( Q(:,J1) )
-                        IF(ETPT .AND. HLFLNGTH /= 0.0_dp) THEN
-                            RBCOORDS = R(:,J1) + HLFLNGTH*MATMUL(RM,REFSITE(:,J2))
-                        ELSE
-                            RBCOORDS = R(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
-                        ENDIF
-                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
-                    ENDDO
+                    IF(KFRECT) THEN
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.37_dp*RBSITES(:,1,J1)
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,1,J1)+TANA*RBSITES(:,2,J1))
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,1,J1)-TANA*RBSITES(:,2,J1))
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.37_dp*RBSITES(:,4,J1)
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,4,J1)+TANB*RBSITES(:,5,J1))
+                        WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), R(:,J1) + 0.3_dp*(RBSITES(:,4,J1)-TANB*RBSITES(:,5,J1))
+                    ELSE
+                        DO J2 = 1, NSITES
+                            RM = Q_TO_RM( Q(:,J1) )
+                            IF(ETPT .AND. HLFLNGTH /= 0.0_dp) THEN
+                                RBCOORDS = R(:,J1) + HLFLNGTH*MATMUL(RM,REFSITE(:,J2))
+                            ELSE
+                                RBCOORDS = R(:,J1) + 0.5_dp*MATMUL(RM,REFSITE(:,J2))
+                            ENDIF
+                            WRITE(174,'(A5,1X,3F12.7)') TRIM(ADJUSTL(PID)), RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                        ENDDO
+                    ENDIF
                 ENDIF
             ENDDO
         ENDIF
@@ -376,15 +386,18 @@ CONTAINS
 !       Steinhardt Bond-Orientational Order parameters.
 !       ==================================================================
 
-        USE COMMONS, ONLY: R, BOX, BOPCLSTRT, CLSTRCOM
-        USE CLUSTER_MOVE, ONLY: BUILD_ALL_CLUSTERS
+        USE COMMONS, ONLY: R,BOX,BOPCLSTRT,CLSTRCOM,BINARYT,DNAT,NSITES,RBSITES,KFDEL,PATCHBST,CLSTR_NEIGHS,CLSTR_NEIGH_CNT
+        USE COMMONS, ONLY: SPHERECNFT
+        USE CLUSTER_MOVE, ONLY: BUILD_ALL_CLUSTERS, GET_CLSTR_NEIGHBOURS
 
         IMPLICIT NONE
 
-        INTEGER                     :: J1, J2, J3
+        INTEGER                     :: J1, J2, J3, J4,J5
         INTEGER                     :: CI(3), J_LIST(NPART), JJ
-        REAL(KIND=DP)               :: DIJ, RI(NDIM), RJ(NDIM), RIJ(NDIM), RJI(NDIM), RIJSQ
+        REAL(KIND=DP)               :: DIJ, RI(NDIM), RJ(NDIM), RIJ(NDIM), RJI(NDIM), RIJSQ, RHAT(NDIM), PEO
+        REAL(KIND=DP)               :: EA(NDIM), EB(NDIM), EARIJ, EBRJI
         REAL(KIND=DP)               :: PHI_IJ, PHI_JI, CTHETA_IJ, CTHETA_JI
+        LOGICAL                     :: PATCHB
         REAL(KIND=DP), INTENT(OUT)  :: DIST(NPBOP,NPBOP), COORDS(2,NPBOP,NPBOP)
         INTEGER, INTENT(OUT)        :: NB(NPBOP)
 
@@ -392,12 +405,20 @@ CONTAINS
         DIST(:,:)   = 1.e+10
         NB(:)       = 0
 
-        IF(BOPCLSTRT) CALL BUILD_ALL_CLUSTERS(BOPSNT=.TRUE.)
+        IF(BOPCLSTRT) THEN
+            IF(PATCHBST) THEN
+                CALL GET_CLSTR_NEIGHBOURS(BOPSNT=.TRUE.)
+            ELSE
+                CALL POTENTIAL(PEO)
+                CALL BUILD_ALL_CLUSTERS(BOPSNT=.TRUE.)
+            ENDIF
+        ENDIF
         
         DO J1 = 1, NPBOP
         !   Position of particle I
             IF(BOPCLSTRT) THEN
                 RI = CLSTRCOM(:,J1)
+                IF(PATCHBST) J5 = CLSTR_NEIGH_CNT(J1)
             ELSE
                 RI  = R(:,J1)
             ENDIF
@@ -432,10 +453,48 @@ CONTAINS
                 ENDIF
 
                 RIJ   = RI - RJ
-                RIJ   = RIJ - BOX*ANINT( RIJ/BOX )
+                IF(.NOT. SPHERECNFT) RIJ   = RIJ - BOX*ANINT( RIJ/BOX )
                 RIJSQ = DOT_PRODUCT(RIJ,RIJ)
+                
+                IF(RIJSQ > BOP_CUT_SQ) THEN
+                    PATCHB = .FALSE.
+                ELSE
+                    IF(PATCHBST) THEN
+                        PATCHB = .FALSE.
+                        IF(BOPCLSTRT) THEN
+                            IF( ANY(CLSTR_NEIGHS(1:J5,J1)==J2) ) PATCHB = .TRUE.
+                        ELSE
+                            IF( (.NOT. BINARYT) .OR. (BINARYT .AND. (MOD(J1,2)==MOD(J2,2))) ) THEN
+                                RHAT = RIJ / SQRT(RIJSQ)
+                                DO J3 = 1, NSITES
+                                !   Direction of patch alpha on particle I
+                                    EA  = RBSITES(:,J3,J1)
+                                    EARIJ = -DOT_PRODUCT(EA,RHAT)
+                                !   If normalised distance vector doesn't pass through patch alpha
+                                !   the conditions for bonding are not met so no need to progress.
+                                    IF(EARIJ <= KFDEL(J3)) CYCLE
+                                    DO J4 = 1, NSITES
+                                        IF(DNAT .AND. J3 /= J4) CYCLE
+                                    !   Direction of patch beta on particle J
+                                        EB    = RBSITES(:,J4,J2)
+                                        EBRJI = DOT_PRODUCT(EB,RHAT)
+                                    !   Check if the normalised distance vector passes through patch beta
+                                    !   and that the patches are close enough to interact.
+                                        IF(EBRJI <= KFDEL(J4)) THEN
+                                            CYCLE
+                                        ELSE
+                                            PATCHB = .TRUE.
+                                        ENDIF
+                                    ENDDO
+                                ENDDO
+                            ENDIF
+                        ENDIF
+                    ELSE
+                        PATCHB = .TRUE.
+                    ENDIF
+                ENDIF
 
-                IF(RIJSQ <= BOP_CUT_SQ) THEN
+                IF(PATCHB) THEN
                 !   Compute the reverse separation vector for particle J 
                     RJI         = -RIJ
                     DIJ         = SQRT(RIJSQ)
@@ -836,5 +895,36 @@ CONTAINS
         ENDDO
 
     END SUBROUTINE DFS
+
+    SUBROUTINE GET_RADIUS_OF_GYRATIONS(RG)
+
+        USE COMMONS, ONLY: NDIM, N_POLY, N_POLY_L, BOX, R
+
+        IMPLICIT NONE
+
+        INTEGER                     :: J1, J2, J3, I, J
+        REAL(KIND=DP)               :: RIJ(NDIM), DIJ
+
+        REAL(KIND=DP), INTENT(OUT)  :: RG(N_POLY)
+
+
+        RG = 0.0_dp
+
+        DO J1 = 1, N_POLY
+            DO J2 = 1, N_POLY_L-1
+                I = (J1-1)*N_POLY_L + J2
+                DO J3 = J2+1, N_POLY_L
+                    J   = (J1-1)*N_POLY_L + J3
+                    RIJ = R(:,I) - R(:,J)
+                    RIJ = RIJ - BOX*ANINT( RIJ/BOX )
+                    DIJ = DOT_PRODUCT(RIJ,RIJ)
+                    RG(J1) = RG(J1) + DIJ
+                ENDDO
+            ENDDO
+        ENDDO
+
+        RG = RG / REAL((2*N_POLY_L*N_POLY_L),DP)
+
+    END SUBROUTINE
 
 END MODULE ORDERPARAM

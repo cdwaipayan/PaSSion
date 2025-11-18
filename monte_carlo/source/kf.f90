@@ -3,9 +3,9 @@
 !   Subroutine to calculate the potential energy for a system of patchy particles interacting
 !   via the Kern-Frenkel potential.
 !==============================================================================================
-        USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES
-        USE COMMONS, ONLY: RCUTSQ, KFLAM2, KFDEL, KFIJ, DNAT, BINARYT, BNRYRTIOT, BNRYA
-        USE COMMONS, ONLY: CLUSTERT, CLSTR, CLSTRSZ, CLSTRID, CLSTRADJ, VLMCLUSTERMOVET, CLURIJ, CLSTRSITEID, LRGCLSTMVT
+        USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES, ONEBONDT, NPBONDS!, PNEIGHS
+        USE COMMONS, ONLY: RCUTSQ, KFLAM2, KFDEL, KFIJ, DNAT, BINARYT, BINARYID, BNRYRTIOT, BNRYA, SQSHT, SQSHDEL, SQSHEPS, SQID
+        USE COMMONS, ONLY: CLUSTERT,CLSTR,CLSTRSZ,CLSTRID,CLSTRADJ,VLMCLUSTERMOVET,CLURIJ,CLSTRSITEID,LRGCLSTMVT,PRNTCNF,BOPCLSTRT
     
         IMPLICIT NONE
     
@@ -13,7 +13,7 @@
         REAL(KIND=DP), INTENT(IN)   :: RIJ(NDIM), RIJSQ
 
         INTEGER                     :: J3, J4
-        REAL(KIND=DP)               :: RHAT(NDIM)
+        REAL(KIND=DP)               :: RHAT(NDIM), DIST
         REAL(KIND=DP)               :: EA(NDIM), EB(NDIM)
         REAL(KIND=DP)               :: EARIJ, EBRJI
     
@@ -22,21 +22,36 @@
         ENERGY   = 0.0_dp
     
         IF (RIJSQ <= RCUTSQ) THEN
-            RHAT  = RIJ / SQRT(RIJSQ)
+            DIST = SQRT(RIJSQ)
+            RHAT = RIJ / DIST
         ELSE
             RETURN
         ENDIF
 
+
     !   If considering a binary system then the 1st and 2nd halves of the particle list do not iteract with one another.
         IF(BINARYT) THEN
             IF(BNRYRTIOT) THEN
-                IF( (J1<=BNRYA .AND. J2<=BNRYA) .OR. (J1>BNRYA .AND. J2>BNRYA) ) RETURN
-            ELSE
-                IF( (MOD(J1,2) == 0 .AND. MOD(J2,2) == 0) .OR. (MOD(J1,2) == 1 .AND. MOD(J2,2) == 1) ) THEN
+                IF( (J1<=BNRYA .AND. J2<=BNRYA) .OR. (J1>BNRYA .AND. J2>BNRYA) ) THEN
+                    IF(SQSHT .AND. SQID==1 .AND. DIST <= SQSHDEL) ENERGY = ENERGY + SQSHEPS
                     RETURN
+                ENDIF
+            ELSE
+                IF(BINARYID==0) THEN
+                    IF( (MOD(J1,2) == 0 .AND. MOD(J2,2) == 0) .OR. (MOD(J1,2) == 1 .AND. MOD(J2,2) == 1) ) THEN
+                        IF(SQSHT .AND. SQID==1 .AND. DIST <= SQSHDEL) ENERGY = ENERGY + SQSHEPS
+                        RETURN
+                    ENDIF
+                ELSE
+                    IF( (MOD(J1,2) == 0 .AND. MOD(J2,2) == 1) .OR. (MOD(J1,2) == 1 .AND. MOD(J2,2) == 0) ) THEN
+                        IF(SQSHT .AND. SQID==1 .AND. DIST <= SQSHDEL) ENERGY = ENERGY + SQSHEPS
+                        RETURN
+                    ENDIF
                 ENDIF
             ENDIF
         ENDIF
+
+        IF(SQSHT .AND. SQID==0 .AND. DIST <= SQSHDEL) ENERGY = ENERGY + SQSHEPS
 
         DO J3 = 1, NSITES
         !   Direction of patch alpha on particle I
@@ -64,13 +79,17 @@
                 !   The conditions for bonding are met so calculate the contribution 
                 !   of the interaction between patches alpha and beta to the energy.
                     ENERGY = ENERGY - KFIJ(J3,J4)
+                    IF(ONEBONDT) THEN
+                        NPBONDS(J3) = NPBONDS(J3) + 1
+                    ENDIF
+
                 !   If performing MC with cluster-moves, add particle J to the current 
                 !   cluster (if it is not already in the cluster). 
                     IF(CLUSTERT .OR. VLMCLUSTERMOVET) THEN
                     !   If simulating triblock patchy particles then we only consider particles
                     !   interacting via patch B-patch B bonds to be apart of the same cluster.
                         IF( .NOT. LRGCLSTMVT ) THEN
-                            IF( J3 /= CLSTRSITEID .OR. J4 /= CLSTRSITEID ) CYCLE ! DO NOTHING  
+                            IF( J3 /= CLSTRSITEID .OR. J4 /= CLSTRSITEID ) CYCLE ! DO NOTHING ELSE
                         ENDIF
                     !   If performing a volume cluster move update the adjacency matrix and the pair
                     !   distance matrix for the system.
@@ -90,79 +109,71 @@
                         ENDIF
                     ENDIF
 
+                    IF(PRNTCNF .OR. BOPCLSTRT) THEN
+                        IF( J3 /= CLSTRSITEID .OR. J4 /= CLSTRSITEID ) THEN
+                            CLSTRADJ(J1,J2) = -1
+                            CLSTRADJ(J2,J1) = -1
+                        ELSE
+                            CLSTRADJ(J1,J2) = 1
+                            CLSTRADJ(J2,J1) = 1
+                            CLURIJ(:,J1,J2) = RIJ
+                            CLURIJ(:,J2,J1) = -RIJ
+                        ENDIF
+                    ENDIF
+
                 ENDIF
             ENDDO ! Loop over each of the patches on particle j
         ENDDO ! Loop over each of the patches on particle i
     
     END SUBROUTINE KF
 
-!====================================================================================================
-
-    SUBROUTINE KF_SURFACE(ENERGY, RI, J1)
-    !==============================================================================================
-    !   Subroutine to calculate the potential energy for a system of patchy particles interacting
-    !   via the Kern-Frenkel potential.
-    !==============================================================================================
-            USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES
-            USE COMMONS, ONLY: RCUT, KFLAM2, KFDEL, KFIJ
-            USE COMMONS, ONLY: SURFZ, GEN2D
-        
-            IMPLICIT NONE
-        
-            INTEGER, INTENT(IN)         :: J1
-            REAL(KIND=DP), INTENT(IN)   :: RI(NDIM)
+    SUBROUTINE KF_SPHERICAL_SURF(ENERGY, J1)
+!==============================================================================================
+!   Subroutine to calculate the potential energy for a system of patchy particles interacting
+!   via the Kern-Frenkel potential.
+!==============================================================================================
+        USE COMMONS, ONLY: DP, NDIM, RBSITES, NSITES, R, KFDEL, KFIJ, SPHERERAD
     
-            INTEGER                     :: J3
-            REAL(KIND=DP)               :: DIST, DIST2, RIJ(NDIM), RHAT(NDIM)
-            REAL(KIND=DP)               :: R2, RLJN, R2LJN, VIJ
-            REAL(KIND=DP)               :: EA(NDIM), EARIJ
-        
-            REAL(KIND=DP), INTENT(OUT)  :: ENERGY
-
-            ENERGY   = 0.0_dp
-
-            DIST  = RI(3)-SURFZ
-            RIJ   = [0.0_dp, 0.0_dp, DIST]
+        IMPLICIT NONE
     
-            IF (DIST <= RCUT/2.0_dp) THEN
-                RHAT  = RIJ / DIST
+        INTEGER, INTENT(IN)         :: J1
+
+        INTEGER                     :: J3
+        REAL(KIND=DP)               :: RI(NDIM), RHAT(NDIM), R2
+        REAL(KIND=DP)               :: EA(NDIM), EARIJ
+    
+        REAL(KIND=DP), INTENT(OUT)  :: ENERGY
+
+        ENERGY   = 0.0_dp
+
+        RI = R(:,J1)
+        R2 = NORM2(RI)
+
+        IF (ABS(SPHERERAD-R2) <= 0.7_dp) THEN
+            RHAT = RI / R2
+        ELSE
+            RETURN
+        ENDIF
+
+        DO J3 = 1, NSITES
+        !   Direction of patch alpha on particle I
+            EA  = RBSITES(:,J3,J1)
+            EARIJ = DOT_PRODUCT(EA,RHAT)
+        !   If normalised distance vector doesn't pass through patch alpha
+        !   the conditions for bonding are not met so no need to progress.
+            IF(EARIJ <= KFDEL(J3)) THEN
+                CYCLE
             ELSE
-                RETURN
-            ENDIF
-
-            DIST2 = DIST**2
-
-            IF(GEN2D) THEN
-                R2      = 1.0_dp/DIST2
-                RLJN    = R2**3
-                R2LJN   = RLJN*RLJN
-                VIJ     = R2LJN - RLJN
-                
-                IF(DIST<=MINVAL(KFLAM2)-0.5_dp) THEN
-                    ENERGY = -10.0_dp
-                ELSE
-                    ENERGY = 40.0_dp*VIJ
-                ENDIF
-            ENDIF
-
-            DO J3 = 1, NSITES
-            !   Direction of patch alpha on particle I
-                EA  = RBSITES(:,J3,J1)
-                EARIJ = -DOT_PRODUCT(EA,RHAT)
-            !   If normalised distance vector doesn't pass through patch alpha
-            !   the conditions for bonding are not met so no need to progress.
-                IF(EARIJ <= KFDEL(J3) .OR. DIST2 > KFLAM2(J3,J3)-1._dp) CYCLE
             !   The conditions for bonding are met so calculate the contribution 
             !   of the interaction between patches alpha and beta to the energy.
-                ENERGY = ENERGY - 10.0_dp*KFIJ(J3,J3)
-            !   If performing MC with cluster-moves, add particle J to the current 
-            !   cluster (if it is not already in the cluster). 
-            ENDDO ! Loop over each of the patches on particle i
-
-    END SUBROUTINE
+                ENERGY = ENERGY - KFIJ(J3,J3)
+            ENDIF
+        ENDDO ! Loop over each of the patches on particle i
     
-!====================================================================================================
+    END SUBROUTINE KF_SPHERICAL_SURF
 
+!====================================================================================================
+    
     SUBROUTINE DEF_KF()
     !----------------------------------------------------------------
     ! Define the position of the patches on particles interacting via
@@ -176,12 +187,14 @@
     ! patches is fixed.
     !----------------------------------------------------------------
     
-        USE COMMONS, ONLY: DP, PI, NSITES, REFSITE, KFIJ, KFLAM2, KFDEL
-        USE COMMONS, ONLY: KFAA, KFBB, KFCC, KFDD, KFLAMA, KFLAMB, KFLAMC, KFLAMD, KFDELA, KFDELB, KFDELC, KFDELD
-    
+        USE COMMONS, ONLY: DP, PI, NSITES, REFSITE, KFIJ, KFLAM, KFLAM2, KFDEL
+        USE COMMONS, ONLY: KFAA, KFBB, KFCC, KFDD, KFEE, KFFF
+        USE COMMONS, ONLY: KFLAMA, KFLAMB, KFLAMC, KFLAMD, KFLAME, KFLAMF
+        USE COMMONS, ONLY: KFDELA, KFDELB, KFDELC, KFDELD, KFDELE, KFDELF
+
         IMPLICIT NONE
 
-        ALLOCATE( KFIJ(NSITES,NSITES), KFLAM2(NSITES,NSITES), KFDEL(NSITES) )
+        ALLOCATE( KFIJ(NSITES,NSITES), KFLAM(NSITES,NSITES), KFLAM2(NSITES,NSITES), KFDEL(NSITES) )
 
         IF(NSITES == 1) KFAA = 1.0_dp
         KFIJ(1,1)   = KFAA
@@ -280,10 +293,83 @@
             KFLAM2(4,3) = ( (KFLAMD + KFLAMC) / 2.0_dp )**2
             KFLAM2(4,4) = KFLAMD**2
 
+        ELSEIF(NSITES == 6) THEN
+            REFSITE(:,1)= (/ 1.0_dp,  0.0_dp,  0.0_dp /)
+            REFSITE(:,2)= (/ 0.0_dp,  1.0_dp,  0.0_dp /)
+            REFSITE(:,3)= (/ 0.0_dp,  0.0_dp,  1.0_dp /)
+            REFSITE(:,4)= (/-1.0_dp,  0.0_dp,  0.0_dp /)
+            REFSITE(:,5)= (/ 0.0_dp, -1.0_dp,  0.0_dp /)
+            REFSITE(:,6)= (/ 0.0_dp,  0.0_dp, -1.0_dp /)
+
+            KFDEL(1)  = COS(KFDELA*PI/180_dp)
+            KFDEL(2)  = COS(KFDELB*PI/180_dp)
+            KFDEL(3)  = COS(KFDELC*PI/180_dp)
+            KFDEL(4)  = COS(KFDELD*PI/180_dp)
+            KFDEL(5)  = COS(KFDELE*PI/180_dp)
+            KFDEL(6)  = COS(KFDELF*PI/180_dp)
+
+            KFIJ(1,2) = SQRT(KFAA*KFBB); KFIJ(2,1) = KFIJ(1,2)
+            KFIJ(2,2) = KFBB
+            KFIJ(1,3) = SQRT(KFAA*KFCC); KFIJ(3,1) = KFIJ(1,3)
+            KFIJ(2,3) = SQRT(KFBB*KFCC); KFIJ(3,2) = KFIJ(2,3)
+            KFIJ(3,3) = KFCC
+            KFIJ(1,4) = SQRT(KFAA*KFDD); KFIJ(4,1) = KFIJ(1,4)
+            KFIJ(2,4) = SQRT(KFBB*KFDD); KFIJ(4,2) = KFIJ(2,4)
+            KFIJ(3,4) = SQRT(KFCC*KFDD); KFIJ(4,3) = KFIJ(3,4)
+            KFIJ(4,4) = KFDD
+            KFIJ(1,5) = SQRT(KFAA*KFEE); KFIJ(5,1) = KFIJ(1,5)
+            KFIJ(2,5) = SQRT(KFBB*KFEE); KFIJ(5,2) = KFIJ(2,5)
+            KFIJ(3,5) = SQRT(KFCC*KFEE); KFIJ(5,3) = KFIJ(3,5)
+            KFIJ(4,5) = SQRT(KFDD*KFEE); KFIJ(5,4) = KFIJ(4,5)
+            KFIJ(5,5) = KFEE
+            KFIJ(1,6) = SQRT(KFAA*KFFF); KFIJ(6,1) = KFIJ(1,6)
+            KFIJ(2,6) = SQRT(KFBB*KFFF); KFIJ(6,2) = KFIJ(2,6)
+            KFIJ(3,6) = SQRT(KFCC*KFFF); KFIJ(6,3) = KFIJ(3,6)
+            KFIJ(4,6) = SQRT(KFDD*KFFF); KFIJ(6,4) = KFIJ(4,6)
+            KFIJ(5,6) = SQRT(KFEE*KFFF); KFIJ(6,5) = KFIJ(5,6)
+            KFIJ(6,6) = KFFF
+
+            KFLAM2(1,2) = ( (KFLAMA + KFLAMB) / 2.0_dp )**2
+            KFLAM2(2,1) = ( (KFLAMB + KFLAMA) / 2.0_dp )**2
+            KFLAM2(2,2) = KFLAMB**2
+            KFLAM2(1,3) = ( (KFLAMA + KFLAMC) / 2.0_dp )**2
+            KFLAM2(3,1) = ( (KFLAMC + KFLAMA) / 2.0_dp )**2
+            KFLAM2(2,3) = ( (KFLAMB + KFLAMC) / 2.0_dp )**2
+            KFLAM2(3,2) = ( (KFLAMC + KFLAMB) / 2.0_dp )**2
+            KFLAM2(3,3) = KFLAMC**2
+            KFLAM2(1,4) = ( (KFLAMA + KFLAMD) / 2.0_dp )**2
+            KFLAM2(4,1) = ( (KFLAMD + KFLAMA) / 2.0_dp )**2
+            KFLAM2(2,4) = ( (KFLAMB + KFLAMD) / 2.0_dp )**2
+            KFLAM2(4,2) = ( (KFLAMD + KFLAMB) / 2.0_dp )**2
+            KFLAM2(3,4) = ( (KFLAMC + KFLAMD) / 2.0_dp )**2
+            KFLAM2(4,3) = ( (KFLAMD + KFLAMC) / 2.0_dp )**2
+            KFLAM2(4,4) = KFLAMD**2
+            KFLAM2(1,5) = ( (KFLAMA + KFLAME) / 2.0_dp )**2
+            KFLAM2(5,1) = ( (KFLAME + KFLAMA) / 2.0_dp )**2
+            KFLAM2(2,5) = ( (KFLAMB + KFLAME) / 2.0_dp )**2
+            KFLAM2(5,2) = ( (KFLAME + KFLAMB) / 2.0_dp )**2
+            KFLAM2(3,5) = ( (KFLAMC + KFLAME) / 2.0_dp )**2
+            KFLAM2(5,3) = ( (KFLAME + KFLAMC) / 2.0_dp )**2
+            KFLAM2(4,5) = ( (KFLAMD + KFLAME) / 2.0_dp )**2
+            KFLAM2(5,4) = ( (KFLAME + KFLAMD) / 2.0_dp )**2
+            KFLAM2(5,5) = KFLAME**2
+            KFLAM2(1,6) = ( (KFLAMA + KFLAMF) / 2.0_dp )**2
+            KFLAM2(6,1) = ( (KFLAMF + KFLAMA) / 2.0_dp )**2
+            KFLAM2(2,6) = ( (KFLAMB + KFLAMF) / 2.0_dp )**2
+            KFLAM2(6,2) = ( (KFLAMF + KFLAMB) / 2.0_dp )**2
+            KFLAM2(3,6) = ( (KFLAMC + KFLAMF) / 2.0_dp )**2
+            KFLAM2(6,3) = ( (KFLAMF + KFLAMC) / 2.0_dp )**2
+            KFLAM2(4,6) = ( (KFLAMD + KFLAMF) / 2.0_dp )**2
+            KFLAM2(6,4) = ( (KFLAMF + KFLAMD) / 2.0_dp )**2
+            KFLAM2(5,6) = ( (KFLAME + KFLAMF) / 2.0_dp )**2
+            KFLAM2(6,5) = ( (KFLAMF + KFLAME) / 2.0_dp )**2
+            KFLAM2(6,6) = KFLAMF**2
         ENDIF
+
+        KFLAM = SQRT(KFLAM2)
         
     END SUBROUTINE
-
+    
 !====================================================================================================
     
     SUBROUTINE VIEW_KF()
@@ -333,6 +419,10 @@
                     WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'O ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
                 ELSEIF(J2==3) THEN
                     WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'K ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                ELSEIF(J2==4) THEN
+                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'B ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
+                ELSEIF(J2==5) THEN
+                    WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'P ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
                 ELSE
                     WRITE(VIEWUNIT,'(A5,1X,3F12.7)') 'Ni ', RBCOORDS(1), RBCOORDS(2), RBCOORDS(3)
                 ENDIF

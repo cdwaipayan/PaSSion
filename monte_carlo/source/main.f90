@@ -53,8 +53,11 @@ PROGRAM FULL_MONTE
         CALL MOVE()
 
         IF (MOD(ISTEP, CHCK_DIV) == 0) CALL CHECK_DIV(ISTEP)
+    
+    !   If peforming a stress-strain simulation update the box length
+        IF(STRAINT .AND. MOD(ISTEP, STRAIN_CYC) == 0 ) CALL APPLY_STRAIN()
 
-        IF (NUCSEEDT) THEN
+        IF (NUCSEEDT .OR. UMBRELLAT .AND. (NPINK>0.0_dp .OR. QPINK>0.0_dp)) THEN
             IF(MOD(ISTEP, TRJCTYLNGTH) == 0 ) THEN
                 CALL UMBRELLA_BIAS(ISTEP)
                 CALL ACCUMULATORS()
@@ -71,6 +74,11 @@ PROGRAM FULL_MONTE
             IF(ISTEP <= NEQ .AND. ARATIOT) CALL ADJUST()
             CALL OUTPUT()
         ENDIF
+
+        IF (PRNTCNF) THEN
+            IF(MOD(ISTEP,CNFFRQ) == 0 .AND. ISTEP > NEQ) CALL PRINT_CONFLINK()
+        ENDIF
+
     ENDDO
 
 !---------------------------------------------------------------------

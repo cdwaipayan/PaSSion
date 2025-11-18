@@ -2,7 +2,7 @@
 SUBROUTINE ACCUMULATORS ()
 !     This subroutine updates various accumulators for average calculations.
     USE COMMONS
-    USE ORDERPARAM, ONLY: GET_BOPS
+    USE ORDERPARAM, ONLY: GET_BOPS, GET_RADIUS_OF_GYRATIONS
     
     IMPLICIT NONE
     INTEGER       :: J1
@@ -56,6 +56,9 @@ SUBROUTINE ACCUMULATORS ()
                     READ (41,*) SUM_U_SS, STD_U_SS_SUM
                 ENDIF
             ENDIF
+
+            IF(STRESST) READ (41,*) TOT_STRAIN
+
             CLOSE(UNIT = 41)
         ELSE
 
@@ -88,6 +91,14 @@ SUBROUTINE ACCUMULATORS ()
                 TOTNUCCOUNT = 0
             ENDIF
 
+        !----------------------------------------------------------------------------------
+        !   Stress tensor for stress-strain simulations
+        !----------------------------------------------------------------------------------
+            IF(STRESST) THEN
+                SUM_STRESS     = 0.0_dp 
+                STD_STRESS_SUM = 0.0_dp
+                SUM_STRESS_BLK = 0.0_dp  
+            ENDIF
         !----------------------------------------------------------------------------------
         !   Free energies from Einstein-crystal integration simulations
         !----------------------------------------------------------------------------------
@@ -147,7 +158,8 @@ SUBROUTINE ACCUMULATORS ()
 !   Density / packing fraction
     IF (DENSITYT) THEN
         RHO   = REAL(NPART,DP)/VLM
-    ELSE IF (PACKINGT .OR. SPHERECNFT) THEN
+        IF(OBJSURFT) RHO = RHO * BOX(3)
+    ELSE IF (PACKINGT) THEN
         RHO   = REAL(NPART,DP)*PI/(6.0_dp*VLM)
     ENDIF
     SUMRHOBLK   = SUMRHOBLK + RHO
@@ -158,6 +170,15 @@ SUBROUTINE ACCUMULATORS ()
         PRES = PRES + CORP(RCUT,RHO)
     ENDIF
     SUMPRESBLK  = SUMPRESBLK + PRES
+!   Virial Stress
+    IF(STRESST) THEN
+        STRESS = VIR_TENS
+        DO J1 = 1,NDIM
+            STRESS(J1,J1) = STRESS(J1,J1) + REAL(NPART,DP)/BETAKB
+        ENDDO
+        STRESS = -STRESS / VLM
+        SUM_STRESS_BLK = SUM_STRESS_BLK + STRESS
+    ENDIF
 !   Box lengths
     IF(NPTT) SUMBOXBLK = SUMBOXBLK + BOX
 !   Translation order-parameter for interface pinning
@@ -187,7 +208,7 @@ SUBROUTINE ACCUMULATORS ()
     !   Update the index of the current block
         IBLOCK = IBLOCK + 1
 
-        IF( NUCSEEDT ) THEN
+        IF( NUCSEEDT .OR. UMBRELLAT ) THEN
             BLK = REAL(BLKLNGTH/TRJCTYLNGTH,DP)
         ELSE
             BLK = REAL(BLKLNGTH,DP)
@@ -211,6 +232,8 @@ SUBROUTINE ACCUMULATORS ()
         !   based on the average value for the collective density field.
             IF(PINT) DELMUBLK = -(PINKAP*PINDELQ)/REAL(NPART,DP) * (AVTRQBLK - PINA)
         ENDIF
+
+        IF(STRESST) AV_STRESS_BLK = SUM_STRESS_BLK/BLK
 
         IF (NUCSEEDT) THEN
             AVLRGSTXCLSTRBLK = SUMLRGSTXCLSTRBLK/BLK
@@ -246,6 +269,8 @@ SUBROUTINE ACCUMULATORS ()
             SUMTRQ  = SUMTRQ + AVTRQBLK
             IF(PINT) SUMDELMU = SUMDELMU + DELMUBLK
         ENDIF
+
+        IF(STRESST) SUM_STRESS = SUM_STRESS + AV_STRESS_BLK
         
         IF (NUCSEEDT) THEN
             SUMLRGSTXCLSTR = SUMLRGSTXCLSTR + AVLRGSTXCLSTRBLK
@@ -288,6 +313,9 @@ SUBROUTINE ACCUMULATORS ()
         !   Average chemical potential difference
             IF(PINT) AVDELMU = SUMDELMU/REAL(IBLOCK,DP)
         ENDIF
+    
+    !   Virial Stress 
+        IF(STRESST) AV_STRESS = SUM_STRESS/REAL(IBLOCK,DP)
 
     !   Average size of largest crystalline cluster
         IF (NUCSEEDT) THEN
@@ -325,6 +353,8 @@ SUBROUTINE ACCUMULATORS ()
             IF(PINT) STDDELMUSUM = STDDELMUSUM + (DELMUBLK - AVDELMU)**2
         ENDIF
         
+        IF(STRESST) STD_STRESS_SUM = STD_STRESS_SUM + (AV_STRESS_BLK - AV_STRESS)**2
+        
         IF (NUCSEEDT) THEN
             STDLRGSTXCLSTRSUM = STDLRGSTXCLSTRSUM + (AVLRGSTXCLSTRBLK - AVLRGSTXCLSTR)**2
             STDNUCCOUNTSUM    = STDNUCCOUNTSUM + (AVNUCCOUNTBLK - AVNUCCOUNT)**2
@@ -359,6 +389,8 @@ SUBROUTINE ACCUMULATORS ()
                 STDTRQ = INVBLK*SQRT(INVBLK2*STDTRQSUM)
                 IF(PINT) STDDELMU = INVBLK*SQRT(INVBLK2*STDDELMUSUM)
             ENDIF
+
+            IF(STRESST) STD_STRESS = INVBLK*SQRT(INVBLK2*STD_STRESS_SUM)
             
             IF (NUCSEEDT) THEN
                 STDLRGSTXCLSTR = INVBLK*SQRT(INVBLK2*STDLRGSTXCLSTRSUM)
@@ -424,6 +456,14 @@ SUBROUTINE ACCUMULATORS ()
             WRITE (5,*) AVBOX
             WRITE (5,*) STDBOX
             CLOSE (UNIT = 5, STATUS = 'KEEP')
+        ENDIF
+
+        IF(STRESST) THEN
+            OPEN (UNIT = 1918, FILE = 'stress.dat', STATUS = 'UNKNOWN', ACCESS = 'APPEND')
+            WRITE (1918,*) "BLOCK: ", IBLOCK, ISTEP
+            WRITE (1918,*) AV_STRESS
+            WRITE (1918,*) STD_STRESS
+            CLOSE (UNIT = 1918, STATUS = 'KEEP')
         ENDIF
 
         IF (NUCSEEDT) THEN
@@ -494,6 +534,17 @@ SUBROUTINE ACCUMULATORS ()
         SUM_EXP_U_SS_BLK = 0.0_dp
         SUM_U_SS_BLK     = 0.0_dp
 
+        IF(STRESST) SUM_STRESS_BLK = 0.0_dp
+
+    ENDIF
+
+    IF(ONEDHISTT) THEN
+        IF(RADIUSGYRT) THEN
+            CALL GET_RADIUS_OF_GYRATIONS(RGYR)
+            CALL UPDATE_HISTOGRAM(RGYR(1))
+        ELSE
+            CALL UPDATE_HISTOGRAM(RHO)
+        ENDIF
     ENDIF
 
 !   ==============================================================================================
@@ -544,6 +595,13 @@ SUBROUTINE ACCUMULATORS ()
     !----------------------------------------------------------------------------------
         SUM_U_SS     = 0.0_dp; STD_U_SS_SUM     = 0.0_dp 
         SUM_EXP_U_SS = 0.0_dp; STD_EXP_U_SS_SUM = 0.0_dp 
+
+        IF(STRESST) THEN
+            SUM_STRESS     = 0.0_dp 
+            STD_STRESS_SUM = 0.0_dp  
+        ENDIF
+
+        IF(ONEDHISTT) HISTCOUNTS = 0
         
     ENDIF
 
